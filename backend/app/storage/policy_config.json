@@ -1,0 +1,7 @@
+{
+  "provider": "groq",
+  "model": "llama-3.3-70b-versatile",
+  "allowed_modes": ["code", "framework"],
+  "privacy_filters": ["pii", "sensitive_data"],
+  "audit_retention_days": 30
+}
