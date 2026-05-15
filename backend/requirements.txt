@@ -14,7 +14,7 @@ opentelemetry-instrumentation-httpx
 opentelemetry-instrumentation-sqlalchemy
 opentelemetry-exporter-otlp-proto-http
 langfuse
-guardrails-ai
+guardrails-ai @ file:///app/vendor/guardrails-v0.10.0.tar.gz
 presidio-analyzer
 presidio-anonymizer
 spacy

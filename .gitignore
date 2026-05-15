@@ -18,3 +18,5 @@ frontend/dist/
 *.tfstate
 *.tfstate.*
 .terragrunt-cache/
+.env.aws.*
+infra-inputs-dev.md

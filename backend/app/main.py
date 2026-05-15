@@ -1,10 +1,17 @@
 import json
 import uuid
 from datetime import datetime
-from fastapi import Depends, FastAPI, HTTPException
+import httpx
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.auth import AuthenticatedUser, get_current_user
+from app.auth import (
+    AuthenticatedUser,
+    auth_runtime_config,
+    get_current_user,
+    require_policy_manager,
+    user_can_manage_policies,
+)
 from app.config import Settings
 from app.database import (
     append_audit_event,
@@ -111,6 +118,41 @@ def root():
 @app.get('/observability')
 def observability():
     return get_tracing_status()
+
+
+async def _proxy_jaeger(request: Request, path: str = ''):
+    target_path = f'/jaeger/{path}'.rstrip('/')
+    target_url = f'http://127.0.0.1:16686{target_path}'
+    if request.url.query:
+        target_url = f'{target_url}?{request.url.query}'
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+            proxied = await client.request(
+                request.method,
+                target_url,
+                headers={'accept': request.headers.get('accept', '*/*')},
+                content=await request.body(),
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=503, detail=f'Jaeger UI is not available: {exc}') from exc
+
+    headers = {
+        key: value
+        for key, value in proxied.headers.items()
+        if key.lower() in {'content-type', 'cache-control', 'location'}
+    }
+    return Response(content=proxied.content, status_code=proxied.status_code, headers=headers)
+
+
+@app.api_route('/jaeger', methods=['GET', 'POST'])
+async def jaeger_root(request: Request):
+    return await _proxy_jaeger(request)
+
+
+@app.api_route('/jaeger/{path:path}', methods=['GET', 'POST'])
+async def jaeger_proxy(path: str, request: Request):
+    return await _proxy_jaeger(request, path)
 
 
 def _risk_level(*results):
@@ -396,18 +438,45 @@ def policy():
     return PolicyResponse(policy=get_policy_payload())
 
 
+@app.get('/auth/config')
+def auth_config():
+    return auth_runtime_config()
+
+
+@app.get('/auth/me')
+def auth_me(user: AuthenticatedUser = Depends(get_current_user)):
+    return {
+        'user_id': user.user_id,
+        'email': user.email,
+        'username': user.username,
+        'tenant_id': user.tenant_id,
+        'groups': list(user.groups),
+        'permissions': {
+            'manage_policies': user_can_manage_policies(user),
+            'install_hub_validators': user_can_manage_policies(user),
+            'activate_policies': user_can_manage_policies(user),
+        },
+    }
+
+
 @app.get('/policies')
-def policies():
+def policies(user: AuthenticatedUser = Depends(require_policy_manager)):
     return {'policies': list_policies()}
 
 
 @app.post('/policies')
-def policies_create(request: SafetyPolicyCreate):
-    return {'policy': create_policy(request.dict())}
+def policies_create(
+    request: SafetyPolicyCreate,
+    user: AuthenticatedUser = Depends(require_policy_manager),
+):
+    return {'policy': create_policy(request.dict(), actor=user.email or user.username or user.user_id)}
 
 
 @app.post('/policies/import/hub')
-def policies_import_hub(request: SafetyHubPolicyImport):
+def policies_import_hub(
+    request: SafetyHubPolicyImport,
+    user: AuthenticatedUser = Depends(require_policy_manager),
+):
     return {
         'policy': create_policy(
             {
@@ -420,25 +489,36 @@ def policies_import_hub(request: SafetyHubPolicyImport):
                 'source': request.source or 'guardrails_hub',
                 'hub_validators': [request.hub_validator.dict()],
             },
-            actor='hub-import',
+            actor=user.email or user.username or user.user_id or 'hub-import',
         )
     }
 
 
 @app.get('/policies/hub/validators')
-def policies_hub_validators():
+def policies_hub_validators(user: AuthenticatedUser = Depends(require_policy_manager)):
     return {'validators': list_hub_validators()}
 
 
 @app.post('/policies/hub/validators/install')
-def policies_hub_validators_install(request: SafetyHubValidatorInstallRequest):
+def policies_hub_validators_install(
+    request: SafetyHubValidatorInstallRequest,
+    user: AuthenticatedUser = Depends(require_policy_manager),
+):
     return install_hub_validator(request.hub_uri, request.install_local_models)
 
 
 @app.put('/policies/{policy_id}')
-def policies_update(policy_id: int, request: SafetyPolicyUpdate):
+def policies_update(
+    policy_id: int,
+    request: SafetyPolicyUpdate,
+    user: AuthenticatedUser = Depends(require_policy_manager),
+):
     try:
-        policy = update_policy(policy_id, request.dict(exclude_none=True))
+        policy = update_policy(
+            policy_id,
+            request.dict(exclude_none=True),
+            actor=user.email or user.username or user.user_id,
+        )
         reload_safety_policies()
         return {'policy': policy}
     except Exception as exc:
@@ -446,9 +526,12 @@ def policies_update(policy_id: int, request: SafetyPolicyUpdate):
 
 
 @app.delete('/policies/{policy_id}')
-def policies_delete(policy_id: int):
+def policies_delete(
+    policy_id: int,
+    user: AuthenticatedUser = Depends(require_policy_manager),
+):
     try:
-        result = delete_policy(policy_id)
+        result = delete_policy(policy_id, actor=user.email or user.username or user.user_id)
         reload_safety_policies()
         return result
     except Exception as exc:
@@ -456,17 +539,27 @@ def policies_delete(policy_id: int):
 
 
 @app.post('/policies/{policy_id}/approve')
-def policies_approve(policy_id: int, request: PolicyActionRequest):
+def policies_approve(
+    policy_id: int,
+    request: PolicyActionRequest,
+    user: AuthenticatedUser = Depends(require_policy_manager),
+):
     try:
-        return {'policy': approve_policy(policy_id, request.actor)}
+        actor = request.actor or user.email or user.username or user.user_id
+        return {'policy': approve_policy(policy_id, actor)}
     except Exception as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
 
 @app.post('/policies/{policy_id}/activate')
-def policies_activate(policy_id: int, request: PolicyActionRequest):
+def policies_activate(
+    policy_id: int,
+    request: PolicyActionRequest,
+    user: AuthenticatedUser = Depends(require_policy_manager),
+):
     try:
-        result = activate_policy(policy_id, request.actor)
+        actor = request.actor or user.email or user.username or user.user_id
+        result = activate_policy(policy_id, actor)
         reload_safety_policies()
         return {'policy': result}
     except ValueError as exc:
@@ -476,7 +569,7 @@ def policies_activate(policy_id: int, request: PolicyActionRequest):
 
 
 @app.post('/policies/reload')
-def policies_reload():
+def policies_reload(user: AuthenticatedUser = Depends(require_policy_manager)):
     return reload_safety_policies()
 
 
