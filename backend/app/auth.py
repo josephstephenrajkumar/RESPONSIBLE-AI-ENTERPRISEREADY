@@ -97,6 +97,43 @@ async def get_current_user(
     )
 
 
+def user_can_manage_policies(user: AuthenticatedUser) -> bool:
+    allowed_groups = {'admin', 'policy-manager', 'guardrails-admin'}
+    return bool(allowed_groups.intersection(user.groups))
+
+
+async def require_policy_manager(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    if not user_can_manage_policies(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Policy manager permission is required',
+        )
+    return user
+
+
+def auth_runtime_config() -> dict[str, Any]:
+    domain = Settings.COGNITO_DOMAIN.strip()
+    if domain and not domain.startswith('http'):
+        domain = f'https://{domain}'
+
+    return {
+        'auth_required': Settings.AUTH_REQUIRED,
+        'token_storage_key': 'enterprise_auth_token',
+        'cognito': {
+            'region': Settings.COGNITO_REGION,
+            'user_pool_id': Settings.COGNITO_USER_POOL_ID,
+            'app_client_id': Settings.COGNITO_APP_CLIENT_ID,
+            'issuer': Settings.COGNITO_ISSUER,
+            'domain': domain,
+            'scopes': ['openid', 'email', 'profile'],
+            'response_type': 'code',
+            'pkce': True,
+        },
+    }
+
+
 async def check_cognito_metadata() -> dict[str, Any]:
     if not Settings.COGNITO_ISSUER:
         return {'configured': False, 'reason': 'COGNITO_ISSUER is not set'}

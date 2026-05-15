@@ -3,6 +3,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from app.config import Settings
+
 _TLD_CACHE_DIR = Path(__file__).resolve().parents[1] / 'storage' / 'tldextract_cache'
 _TLD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault('TLDEXTRACT_CACHE', str(_TLD_CACHE_DIR))
@@ -20,12 +22,14 @@ except ImportError:
 
 try:
     from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerResult
+    from presidio_analyzer.nlp_engine import NlpEngineProvider
     from presidio_anonymizer import AnonymizerEngine
     from presidio_anonymizer.entities import OperatorConfig
 
     _presidio_available = True
 except ImportError:
     AnalyzerEngine = None
+    NlpEngineProvider = None
     Pattern = None
     PatternRecognizer = None
     RecognizerResult = None
@@ -102,7 +106,17 @@ def _get_presidio_engines():
         return None, None, 'Presidio packages are not installed'
 
     try:
-        analyzer = AnalyzerEngine()
+        nlp_configuration = {
+            'nlp_engine_name': 'spacy',
+            'models': [
+                {
+                    'lang_code': 'en',
+                    'model_name': Settings.PRESIDIO_SPACY_MODEL
+                }
+            ]
+        }
+        nlp_engine = NlpEngineProvider(nlp_configuration=nlp_configuration).create_engine()
+        analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=['en'])
         _add_custom_recognizers(analyzer)
         anonymizer = AnonymizerEngine()
         return analyzer, anonymizer, None

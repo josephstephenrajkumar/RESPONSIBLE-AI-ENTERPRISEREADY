@@ -17,22 +17,27 @@ import PolicyEditor from './PolicyEditor'
 import PolicyTable from './PolicyTable'
 import PolicyTestLab from './PolicyTestLab'
 
-export default function PolicyManager() {
+export default function PolicyManager({ user }) {
   const [policies, setPolicies] = useState([])
   const [editing, setEditing] = useState(null)
   const [approving, setApproving] = useState(null)
   const [reloadInfo, setReloadInfo] = useState(null)
   const [testResult, setTestResult] = useState(null)
   const [testing, setTesting] = useState(false)
+  const canManage = user?.permissions?.manage_policies === true
 
   const refresh = async () => {
+    if (!canManage) {
+      setPolicies([])
+      return
+    }
     const data = await fetchPolicies()
     setPolicies(data.policies || [])
   }
 
   useEffect(() => {
     refresh().catch(console.error)
-  }, [])
+  }, [canManage])
 
   const submitPolicy = async (payload) => {
     let result
@@ -84,7 +89,7 @@ export default function PolicyManager() {
   return (
     <div className="policy-manager-grid">
       <GovernanceDashboard policies={policies} reloadInfo={reloadInfo} onReload={runReload} />
-      <HubValidatorCatalog onImportDraft={submitPolicy} />
+      <HubValidatorCatalog onImportDraft={submitPolicy} canManage={canManage} />
       <PolicyEditor policy={editing} onSubmit={submitPolicy} onCancel={() => setEditing(null)} />
       <PolicyTable
         policies={policies}

@@ -113,8 +113,9 @@ check_prerequisites() {
 # Setup S3 backend for remote state
 setup_backend() {
     log_info "Setting up S3 backend for Terraform remote state..."
-    
-    local state_bucket="${PROJECT_NAME}-terraform-state-${ENVIRONMENT}"
+
+    local account_id="${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
+    local state_bucket="${PROJECT_NAME}-terraform-state-${ENVIRONMENT}-${account_id}"
     local lock_table="${PROJECT_NAME}-terraform-locks-${ENVIRONMENT}"
     
     # Create S3 bucket for state
@@ -259,7 +260,7 @@ validate_config() {
     
     cd "${LIVE_DIR}"
     
-    if terragrunt validate-all; then
+    if terragrunt hcl validate; then
         log_success "Configuration is valid"
     else
         log_error "Configuration validation failed"
@@ -296,12 +297,15 @@ show_help() {
 # Main script logic
 main() {
     local command="${1:-}"
-    local module="${2:-}"
+    local module=""
     local skip_backend=false
     local auto_approve=false
-    
+
+    if [[ $# -gt 0 ]]; then
+        shift
+    fi
+
     # Parse options
-    shift 2 2>/dev/null || true
     while [[ $# -gt 0 ]]; do
         case $1 in
             --skip-backend)
@@ -312,10 +316,20 @@ main() {
                 auto_approve=true
                 shift
                 ;;
-            *)
+            -*)
                 log_error "Unknown option: $1"
                 show_help
                 exit 1
+                ;;
+            *)
+                if [[ -z "${module}" ]]; then
+                    module="$1"
+                    shift
+                else
+                    log_error "Unexpected argument: $1"
+                    show_help
+                    exit 1
+                fi
                 ;;
         esac
     done

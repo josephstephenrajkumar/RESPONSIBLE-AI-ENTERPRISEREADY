@@ -1,12 +1,27 @@
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
+const TOKEN_KEY = 'enterprise_auth_token'
 
 function authHeaders() {
-  const token = window.localStorage.getItem('enterprise_auth_token')
+  const token = getAuthToken()
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 function jsonHeaders() {
   return { 'Content-Type': 'application/json', ...authHeaders() }
+}
+
+async function parseResponse(response) {
+  const contentType = response.headers.get('content-type') || ''
+  const data = contentType.includes('application/json')
+    ? await response.json()
+    : { detail: await response.text() }
+
+  if (!response.ok) {
+    const detail = data?.detail || data?.message || `Request failed with HTTP ${response.status}`
+    throw new Error(detail)
+  }
+
+  return data
 }
 
 export async function sendChat(payload) {
@@ -15,22 +30,46 @@ export async function sendChat(payload) {
     headers: jsonHeaders(),
     body: JSON.stringify(payload)
   })
-  return response.json()
+  return parseResponse(response)
+}
+
+export function getAuthToken() {
+  return window.localStorage.getItem(TOKEN_KEY)
+}
+
+export function setAuthToken(token) {
+  if (token) {
+    window.localStorage.setItem(TOKEN_KEY, token)
+  }
+}
+
+export function clearAuthToken() {
+  window.localStorage.removeItem(TOKEN_KEY)
+}
+
+export async function fetchAuthConfig() {
+  const response = await fetch(`${API_BASE}/auth/config`)
+  return parseResponse(response)
+}
+
+export async function fetchMe() {
+  const response = await fetch(`${API_BASE}/auth/me`, { headers: authHeaders() })
+  return parseResponse(response)
 }
 
 export async function fetchPolicy() {
   const response = await fetch(`${API_BASE}/policy`, { headers: authHeaders() })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function fetchObservability() {
   const response = await fetch(`${API_BASE}/observability`, { headers: authHeaders() })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function fetchPolicies() {
   const response = await fetch(`${API_BASE}/policies`, { headers: authHeaders() })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function createPolicy(payload) {
@@ -39,7 +78,7 @@ export async function createPolicy(payload) {
     headers: jsonHeaders(),
     body: JSON.stringify(payload)
   })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function importHubPolicy(payload) {
@@ -55,12 +94,12 @@ export async function importHubPolicy(payload) {
       hub_validator: payload.hub_validators[0]
     })
   })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function fetchHubValidators() {
   const response = await fetch(`${API_BASE}/policies/hub/validators`, { headers: authHeaders() })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function installHubValidator(payload) {
@@ -69,7 +108,7 @@ export async function installHubValidator(payload) {
     headers: jsonHeaders(),
     body: JSON.stringify(payload)
   })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function updatePolicy(id, payload) {
@@ -78,12 +117,12 @@ export async function updatePolicy(id, payload) {
     headers: jsonHeaders(),
     body: JSON.stringify(payload)
   })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function deletePolicy(id) {
   const response = await fetch(`${API_BASE}/policies/${id}`, { method: 'DELETE', headers: authHeaders() })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function approvePolicy(id) {
@@ -92,7 +131,7 @@ export async function approvePolicy(id) {
     headers: jsonHeaders(),
     body: JSON.stringify({ actor: 'policy-manager' })
   })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function activatePolicy(id) {
@@ -101,12 +140,12 @@ export async function activatePolicy(id) {
     headers: jsonHeaders(),
     body: JSON.stringify({ actor: 'policy-manager' })
   })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function reloadPolicies() {
   const response = await fetch(`${API_BASE}/policies/reload`, { method: 'POST', headers: authHeaders() })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function testPolicies(message) {
@@ -115,16 +154,16 @@ export async function testPolicies(message) {
     headers: jsonHeaders(),
     body: JSON.stringify({ message })
   })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function fetchMyAudit() {
   const response = await fetch(`${API_BASE}/audit/me`, { headers: authHeaders() })
-  return response.json()
+  return parseResponse(response)
 }
 
 export async function fetchGuardrailReport(userId = '') {
   const query = userId ? `?user_id=${encodeURIComponent(userId)}` : ''
   const response = await fetch(`${API_BASE}/reports/guardrails${query}`, { headers: authHeaders() })
-  return response.json()
+  return parseResponse(response)
 }

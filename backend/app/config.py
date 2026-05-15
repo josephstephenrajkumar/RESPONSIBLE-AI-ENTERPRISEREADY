@@ -19,10 +19,13 @@ class Settings:
     LANGFUSE_PUBLIC_KEY = os.getenv('LANGFUSE_PUBLIC_KEY', '')
     LANGFUSE_SECRET_KEY = os.getenv('LANGFUSE_SECRET_KEY', '')
     LANGFUSE_HOST = os.getenv('LANGFUSE_HOST', 'https://cloud.langfuse.com')
+    PRESIDIO_SPACY_MODEL = os.getenv('PRESIDIO_SPACY_MODEL', 'en_core_web_sm')
+    GUARDRAILS_TOKEN = os.getenv('GUARDRAILS_TOKEN', '')
     AUTH_REQUIRED = os.getenv('AUTH_REQUIRED', 'false').lower() == 'true'
     COGNITO_REGION = os.getenv('COGNITO_REGION', '')
     COGNITO_USER_POOL_ID = os.getenv('COGNITO_USER_POOL_ID', '')
     COGNITO_APP_CLIENT_ID = os.getenv('COGNITO_APP_CLIENT_ID', '')
+    COGNITO_DOMAIN = os.getenv('COGNITO_DOMAIN', '')
     COGNITO_ISSUER = os.getenv(
         'COGNITO_ISSUER',
         f'https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}'
@@ -36,6 +39,7 @@ class Settings:
     JAEGER_PORT = int(os.getenv('JAEGER_PORT', '6831'))
     JAEGER_ENDPOINT = os.getenv('JAEGER_ENDPOINT', '')
     JAEGER_UI_URL = os.getenv('JAEGER_UI_URL', 'http://localhost:16686')
+    OTEL_EXPORTER = os.getenv('OTEL_EXPORTER', 'otlp_http_to_jaeger')
     OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = os.getenv(
         'OTEL_EXPORTER_OTLP_TRACES_ENDPOINT',
         f'http://{JAEGER_HOST}:4318/v1/traces'

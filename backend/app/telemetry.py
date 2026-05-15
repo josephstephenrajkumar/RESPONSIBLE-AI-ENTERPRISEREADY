@@ -32,9 +32,10 @@ except ImportError:
 _tracing_status = {
     'status': 'not_started',
     'service': Settings.OTEL_SERVICE_NAME,
-    'exporter': 'otlp_http_to_jaeger',
+    'exporter': Settings.OTEL_EXPORTER,
     'endpoint': Settings.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
     'jaeger_ui': Settings.JAEGER_UI_URL,
+    'console_url': Settings.JAEGER_UI_URL,
     'sqlalchemy_instrumented': False
 }
 _tracing_initialized = False
@@ -83,9 +84,10 @@ def setup_tracing(app: FastAPI) -> dict:
     _tracing_initialized = True
     _tracing_status.update({
         'status': 'enabled',
-        'exporter': 'otlp_http_to_jaeger',
+        'exporter': Settings.OTEL_EXPORTER,
         'endpoint': Settings.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
         'jaeger_ui': Settings.JAEGER_UI_URL,
+        'console_url': Settings.JAEGER_UI_URL,
         'sqlalchemy_instrumented': False
     })
     return _tracing_status

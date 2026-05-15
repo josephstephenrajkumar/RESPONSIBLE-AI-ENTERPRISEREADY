@@ -1,4 +1,4 @@
-FROM python:3.12-slim AS runtime
+FROM python:3.11-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -11,13 +11,17 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+COPY vendor ./vendor
 RUN pip install --upgrade pip \
     && pip install -r requirements.txt
+
+RUN pip install ./vendor/en_core_web_sm-3.8.0-py3-none-any.whl
 
 COPY app ./app
 COPY scripts ./scripts
 
 RUN useradd --create-home --shell /usr/sbin/nologin appuser \
+    && chown -R appuser:appuser /usr/local/lib/python3.11/site-packages/guardrails/hub \
     && chown -R appuser:appuser /app
 USER appuser
 

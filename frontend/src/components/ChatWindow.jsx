@@ -20,6 +20,7 @@ export default function ChatWindow({ messages, onSend, loading }) {
             key={index} 
             role={message.role} 
             text={message.text} 
+            isError={message.isError}
             responsibleAI={message.responsibleAI} 
           />
         ))}

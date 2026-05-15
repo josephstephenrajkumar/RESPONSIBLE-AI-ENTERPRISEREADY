@@ -1,5 +1,5 @@
-export default function MessageBubble({ role, text, responsibleAI }) {
-  const className = role === 'assistant' ? 'bubble assistant' : 'bubble user'
+export default function MessageBubble({ role, text, responsibleAI, isError = false }) {
+  const className = `${role === 'assistant' ? 'bubble assistant' : 'bubble user'}${isError ? ' error' : ''}`
   const privacy = responsibleAI?.privacy || {}
   const safety = responsibleAI?.safety || {}
   const fairness = responsibleAI?.fairness || {}

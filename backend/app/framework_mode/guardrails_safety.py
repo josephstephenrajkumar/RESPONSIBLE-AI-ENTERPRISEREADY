@@ -41,6 +41,48 @@ _hub_policy_cache = []
 _compiled_policy_version = 'none'
 _cache_lock = RLock()
 
+_BUILTIN_HIGH_RISK_PATTERNS = [
+    {
+        'category': 'dangerous_instructions',
+        'label': 'explosives_or_weapons_instructions',
+        'pattern': (
+            r'\b(?:how\s+to\s+)?(?:make|build|create|assemble|construct|manufacture|'
+            r'produce|synthesize|weaponize)\b.{0,80}\b(?:bomb|explosive|ied|'
+            r'detonator|grenade|landmine|pipe\s*bomb|molotov)\b'
+        ),
+    },
+    {
+        'category': 'dangerous_instructions',
+        'label': 'explosives_or_weapons_instructions',
+        'pattern': (
+            r'\b(?:bomb|explosive|ied|detonator|grenade|landmine|pipe\s*bomb|'
+            r'molotov)\b.{0,80}\b(?:recipe|instructions?|guide|steps?|materials?|'
+            r'ingredients?|tutorial|blueprint|formula)\b'
+        ),
+    },
+    {
+        'category': 'dangerous_instructions',
+        'label': 'explosives_or_weapons_instructions',
+        'pattern': (
+            r'\b(?:tell|show|teach|explain|give)\b.{0,80}\bhow\s+to\b.{0,80}'
+            r'\b(?:bomb|explosive|ied|detonator|grenade|landmine|pipe\s*bomb|'
+            r'molotov)\b'
+        ),
+    },
+    {
+        'category': 'dangerous_instructions',
+        'label': 'explosives_or_weapons_instructions',
+        'pattern': (
+            r'\bhow\s+to\b.{0,80}\b(?:bomb|explosive|ied|detonator|grenade|'
+            r'landmine|pipe\s*bomb|molotov)\b'
+        ),
+    },
+]
+_BUILTIN_HIGH_RISK_COMPILED = [
+    {**item, 'compiled': re.compile(item['pattern'], re.IGNORECASE)}
+    for item in _BUILTIN_HIGH_RISK_PATTERNS
+]
+
 
 def _module_name_from_hub_uri(hub_uri):
     validator_id = (hub_uri or '').replace('hub://', '')
@@ -114,6 +156,26 @@ def _detect_violations(text):
     violations = []
     matched_patterns = []
     with tracer.start_as_current_span('policy_match'):
+        builtin_matches = []
+        builtin_patterns = []
+        for item in _BUILTIN_HIGH_RISK_COMPILED:
+            found = [match.group(0) for match in item['compiled'].finditer(text)]
+            if found:
+                builtin_matches.extend(found)
+                builtin_patterns.append(item['pattern'])
+        if builtin_matches:
+            violations.append(
+                {
+                    'policy_id': 'builtin-dangerous-instructions',
+                    'policy_name': 'Built-in Dangerous Instructions Policy',
+                    'category': 'dangerous_instructions',
+                    'severity': 'high',
+                    'matches': sorted(set(builtin_matches), key=str.lower),
+                    'patterns': sorted(set(builtin_patterns)),
+                }
+            )
+            matched_patterns.extend(builtin_patterns)
+
         for policy in _loaded_policies():
             matches = []
             policy_patterns = []
