@@ -11,6 +11,9 @@ Resources:
 - Private S3 bucket holding `litellm/config.yaml`; the task loads it at start-up via
   `LITELLM_CONFIG_BUCKET_NAME` / `LITELLM_CONFIG_BUCKET_OBJECT_KEY`. Routing, fallbacks and
   budgets change with a config upload and a service redeploy, not an image build.
+  LiteLLM only consults the bucket when a `--config <path>` argument is present (the path is
+  not read), so the container command passes `--config /app/config.yaml`. If the bucket read
+  fails the proxy exits instead of starting with no models.
 - Internal ALB (port 80 -> 4000) reachable only from the VPC CIDRs you allow.
 - ECS cluster, Fargate task definition and service for `ghcr.io/berriai/litellm`.
 - Sidecar ADOT collector so proxy spans land in X-Ray alongside the gateway's.

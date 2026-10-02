@@ -1,5 +1,15 @@
 # AWS Dev Deployment Runbook
 
+> **Fresh account / Terragrunt 1.x notes (2026-10-02).** `terragrunt plan` no longer creates the
+> remote-state bucket; run `cd infra/live/dev/network && terragrunt --non-interactive backend bootstrap`
+> once per account first. The account id, Cognito `domain_prefix` and CloudFront origins in
+> `infra/live/dev/*.hcl` are account-specific; retarget them before the first apply. Deploy order now
+> includes `ecs-litellm-proxy` before `ecs-ai-gateway`; store the Groq key in `groq_api_key` and a
+> LiteLLM key in `litellm_gateway_key` after `secrets` is applied. Pin `image_tag` to the commit sha
+> you pushed. Prefer `terragrunt plan -out=<file>` → review → `terragrunt apply <file>` over
+> `-auto-approve`.
+
+
 This runbook documents the full `dev` deployment flow for Responsible AI EnterpriseReady.
 
 ```text

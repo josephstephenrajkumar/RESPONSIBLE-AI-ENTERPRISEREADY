@@ -28,6 +28,7 @@ Found during the 2026-10-02 architecture review. Severity reflects production im
 | TD-22 | Backend | `code` vs `framework` modes duplicate pillar orchestration in `main.py` (~150 lines). | Hard to extend; easy to desync. | Medium | M | 3 | Open. Extract a pipeline abstraction. |
 | TD-23 | FinOps | Budget enforcement is advisory in the gateway (gauge only). | Spend can exceed budget. | Medium | S | 2 | Open. Enforce via LiteLLM key/team budgets. |
 | TD-24 | Infra | `ecs-ai-gateway/README.md` and `AWS_SERVICE_MAPPING.md` describe direct Groq calls. | Docs drift. | Low | S | 1 | **Resolved** in this change. |
+| TD-25 | Security | Dev gateway task uses the LiteLLM **master key** as `LITELLM_API_KEY` because the proxy ALB is VPC-internal and `/key/generate` cannot be called from outside yet. | Gateway can reach proxy admin routes; no per-service budget scope. | High | S | 2 | Open. Issue a scoped virtual key from inside the VPC (ECS Exec or a one-off task) and store it in `litellm_gateway_key`. |
 
 ## Principles for paying it down
 

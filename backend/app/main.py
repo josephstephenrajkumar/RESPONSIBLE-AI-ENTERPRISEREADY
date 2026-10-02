@@ -337,6 +337,16 @@ async def _chat(request: ChatRequest, user: AuthenticatedUser, gateway_request_i
                 llm_span.set_attribute('llm.latency_ms', response.get('latency_ms', 0))
                 llm_span.set_attribute('llm.call_id', response.get('call_id', ''))
         answer = response.get('answer', '')
+        if response.get('status') == 'success' and not (answer or '').strip():
+            # Reasoning models can spend the whole token budget before emitting
+            # text. Say so instead of returning an empty answer (which the output
+            # checks would otherwise have nothing to evaluate).
+            answer = (
+                f"The model returned no text (finish_reason={response.get('finish_reason') or 'unknown'}, "
+                f"max_tokens={request.max_tokens}). The token budget was used before an answer was produced; "
+                'increase max_tokens and try again.'
+            )
+            response['empty_answer'] = True
 
         if request.mode == 'framework':
             with tracer.start_as_current_span('privacy_output_check') as output_privacy_span:
@@ -471,6 +481,7 @@ async def _chat(request: ChatRequest, user: AuthenticatedUser, gateway_request_i
                     fallbacks=response.get('fallbacks', 0),
                     status=response.get('status', 'success'),
                     error_type=response.get('error_type', ''),
+                    finish_reason=response.get('finish_reason', ''),
                 ),
             )
 

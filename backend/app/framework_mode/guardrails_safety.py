@@ -343,7 +343,10 @@ def evaluate_safety(message, stage='input'):
     validation_summaries = []
     engine = 'guardrails_ai'
 
-    if guard:
+    # Guard.validate() reports failure for an empty string, which would surface a
+    # model that produced no text (e.g. reasoning consumed max_tokens) as a safety
+    # block with no violation behind it. Nothing to validate means nothing to block.
+    if guard and message.strip():
         try:
             with tracer.start_as_current_span('guardrails_validate'):
                 outcome = guard.validate(message, metadata={'stage': stage})
@@ -360,7 +363,7 @@ def evaluate_safety(message, stage='input'):
         except Exception as exc:
             setup_error = str(exc)
             engine = 'guardrails_ai_with_regex_fallback'
-    else:
+    elif not guard:
         engine = 'regex_fallback'
 
     blocked = not validation_passed or risk == 'high'

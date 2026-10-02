@@ -35,12 +35,16 @@ inputs = {
     "http://localhost:5173/",
     "http://localhost:3000",
     "http://localhost:3000/",
+    "https://d12wylhj234wu3.cloudfront.net",
+    "https://d12wylhj234wu3.cloudfront.net/",
   ]
   logout_urls = [
     "http://localhost:5173",
     "http://localhost:5173/",
     "http://localhost:3000",
     "http://localhost:3000/",
+    "https://d12wylhj234wu3.cloudfront.net",
+    "https://d12wylhj234wu3.cloudfront.net/",
   ]
 
   allowed_oauth_scopes = ["email", "openid", "profile"]

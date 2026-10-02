@@ -70,7 +70,7 @@ inputs = {
 
   database_url       = dependency.aurora.outputs.database_url
   ecr_repository_url = dependency.ecr.outputs.repository_url
-  image_tag          = "latest"
+  image_tag          = "78a15b0"
 
   # All model traffic goes through the LiteLLM proxy. The gateway task gets a
   # LiteLLM virtual key (generate it with /key/generate and store it in the
@@ -92,7 +92,7 @@ inputs = {
   cognito_domain        = dependency.cognito.outputs.hosted_ui_domain
   cognito_issuer        = dependency.cognito.outputs.issuer
 
-  frontend_origins = "http://localhost:5173,http://localhost:3000"
+  frontend_origins = "http://localhost:5173,http://localhost:3000,https://d12wylhj234wu3.cloudfront.net"
   auth_required    = true
   desired_count    = 1
   cpu              = 1024

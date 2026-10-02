@@ -47,7 +47,7 @@ def _proxy_response(request: httpx.Request, *, cost_header=True, status_code=200
     payload = {
         'id': 'chatcmpl-1',
         'model': model,
-        'choices': [{'message': {'role': 'assistant', 'content': 'hello from the proxy'}}],
+        'choices': [{'message': {'role': 'assistant', 'content': 'hello from the proxy'}, 'finish_reason': 'stop'}],
         'usage': {'prompt_tokens': 100, 'completion_tokens': 50, 'total_tokens': 150},
     }
     return httpx.Response(status_code, json=payload, headers=headers)
@@ -95,6 +95,7 @@ class LLMGatewayClientTests(unittest.TestCase):
         self.assertEqual(result['retries'], 1)
         self.assertEqual(result['proxy_overhead_ms'], 12)
         self.assertEqual(result['call_id'], 'call-123')
+        self.assertEqual(result['finish_reason'], 'stop')
 
         rows = self._usage_rows()
         self.assertEqual(len(rows), 1)

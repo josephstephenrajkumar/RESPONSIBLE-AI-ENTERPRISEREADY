@@ -30,6 +30,7 @@ inputs = {
   allowed_origins = [
     "http://localhost:5173",
     "http://localhost:3000",
+    "https://d12wylhj234wu3.cloudfront.net",
   ]
 
   tags = {

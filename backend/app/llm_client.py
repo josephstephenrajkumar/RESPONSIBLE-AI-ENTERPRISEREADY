@@ -185,6 +185,7 @@ class LLMGatewayClient:
                            latency_ms: int) -> Dict[str, Any]:
         choices = data.get('choices') or [{}]
         answer = (choices[0].get('message') or {}).get('content', '') if choices else ''
+        finish_reason = (choices[0].get('finish_reason') or '') if choices else ''
         usage = data.get('usage') or {}
         prompt_tokens = int(usage.get('prompt_tokens') or 0)
         completion_tokens = int(usage.get('completion_tokens') or 0)
@@ -217,6 +218,7 @@ class LLMGatewayClient:
             'api_base': headers.get(_HEADER_API_BASE, ''),
             'key_spend': _to_float(headers.get(_HEADER_KEY_SPEND)),
             'status': 'success',
+            'finish_reason': finish_reason,
             'metadata': data,
         }
 

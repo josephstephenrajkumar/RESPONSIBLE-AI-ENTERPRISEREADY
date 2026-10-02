@@ -49,6 +49,7 @@ class UsageMetadata(BaseModel):
     fallbacks: int = 0
     status: str = 'success'
     error_type: str = ''
+    finish_reason: str = ''
 
 
 class MetadataResponse(BaseModel):

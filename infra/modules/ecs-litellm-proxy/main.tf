@@ -334,7 +334,9 @@ resource "aws_ecs_task_definition" "this" {
       name      = "litellm"
       image     = var.litellm_image
       essential = true
-      command   = ["--port", "4000"]
+      # LiteLLM only consults LITELLM_CONFIG_BUCKET_* when a --config path is
+      # given (WORKER_CONFIG must be a string); the path itself is not read.
+      command = ["--config", "/app/config.yaml", "--port", "4000"]
       portMappings = [
         { containerPort = 4000, hostPort = 4000, protocol = "tcp" }
       ]
