@@ -57,6 +57,8 @@ Judge calls use the same key so evaluation spend lands on the tenant.
 tenant override → platform override → environment default. The Proxy Manager gets a **tenant selector**; `tenant-admin`
 sees only their tenant.
 
+Extended in [PROXY_MANAGER_ENTERPRISE_DESIGN.md](PROXY_MANAGER_ENTERPRISE_DESIGN.md) §1 to a full hierarchy (tenant → department → application → request) mapped to LiteLLM organization → team → key, with narrow-only inheritance, and in §2 to the App control plane integration and gateway-issued credentials.
+
 ### 4.3 Credentials per tenant and per store
 
 LiteLLM resolves a model's credential three ways, and they can be mixed inside one proxy:

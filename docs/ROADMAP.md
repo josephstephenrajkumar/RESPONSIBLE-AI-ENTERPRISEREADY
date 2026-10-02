@@ -12,6 +12,7 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | **Responsible-AI evaluation** | Ragas/TruLens become a sampled evaluation platform with datasets and trends, not inline per-request calls. |
 | **Governance & compliance** | Policies, audits and reports are tenant-aware, retained, exportable and reviewable. |
 | **Scale & platform** | The gateway serves hundreds of concurrent users and other applications in the organisation. |
+| **Platform integration & guided configuration** | The AI App control plane discovers the gateway at run time and receives gateway-issued credentials; administrators configure every scope with examples, validation and AI assistance. See [PROXY_MANAGER_ENTERPRISE_DESIGN.md](PROXY_MANAGER_ENTERPRISE_DESIGN.md). |
 | **Multi-tenancy** | Tenants get separated data, configuration, credentials, budgets and policies, with a choice of isolation tier. See [MULTI_TENANCY_DESIGN.md](MULTI_TENANCY_DESIGN.md). |
 
 ## Sprint plan
@@ -56,6 +57,8 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 - ✅ **Proxy Manager completeness** (requested 2026-10-02): every section can define and edit — router settings, LiteLLM settings, callbacks with env vars, Redis cache form/test/ping/flush, general settings form, model edit (prices/params/alias), key/team edit and key regeneration, MCP edit, guardrail toggle/test, chat allowlist. Enabled by making `litellm/config.yaml` bootstrap-only with DB-managed runtime settings seeded from `litellm_runtime_defaults.json`. Session refresh for Cognito tokens.
 - **Admin audit view**: expose `policy_audit_events` (provider/model/key/settings changes, rotations, seeding) as a Proxy Manager section; today the rows are written but only readable in the database.
 - **Capability discovery for the Proxy Manager** (requested 2026-10-02): capability manifest from LiteLLM `/routes` + `/openapi.json` with coverage status on the Overview, upgrade diff + audit event, admin-enabled dynamic allow-list (`litellm.allowed_routes_extra`, inference routes always excluded), schema-driven explorer for allowed-but-uncurated routes, provider registry sourced from `/public/providers/fields`, proxy image pinned to a release tag ([LITELLM_PROXY_MANAGER.md](LITELLM_PROXY_MANAGER.md) "Capability discovery").
+- **Settings hierarchy phase 1** (requested 2026-10-02, [PROXY_MANAGER_ENTERPRISE_DESIGN.md](PROXY_MANAGER_ENTERPRISE_DESIGN.md) §1): tenant / department / application registry mapped to LiteLLM organization / team / virtual key; scoped `gateway_settings` with narrow-only inheritance and locks; scope switcher in the Proxy Manager with "inherited from" and override/revert; team- and key-level `router_settings`, guardrails, tags and callbacks; `tenant-admin` and `department-admin` roles. Single-tenant deployments use the same tree under `default`.
+- **Guided configuration phase 1** (§3): settings catalogue with recommended values per environment and workload served by the gateway, inline help and "Recommended" chips, server-side validation before save (`/gateway/admin/litellm-config/validate`), configuration profiles (Starter, Production cost-optimised, Production latency-optimised, Regulated, Agentic) with diff preview.
 - **Per-tenant configuration**: `gateway_settings` tenant namespace (default/judge model, enablement, credential store, cache namespace, isolation tier), tenant selector in the Proxy Manager, `tenant-admin` role; mixed credential stores in one proxy (one tenant on LiteLLM DB, another on Secrets Manager).
 
 **Exit criteria**: framework-mode p95 drops below the code-mode p95 + 1 s; evaluation coverage and spend reported separately.
@@ -63,6 +66,7 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 ### Sprint 4 — Governance, compliance and RBAC
 
 - Tenant-aware policies: policy ownership and activation per tenant; tenant filter on all reports.
+- **AI App control plane integration** (requested 2026-10-02, [PROXY_MANAGER_ENTERPRISE_DESIGN.md](PROXY_MANAGER_ENTERPRISE_DESIGN.md) §2): `/.well-known/ai-gateway` discovery document and authenticated capability manifest with JSON Schemas; tenant and application onboarding APIs that create the LiteLLM organization/team/key and an OAuth2 client (client-credentials, resource-server scopes) with build-time and run-time credentials and auto-rotation; gateway token exchange (`/oauth2/exchange`, KMS-signed) for the App platform acting for a tenant; webhooks/EventBridge events; enforcement at network, token/registry and key layers so no tenant or third-party app is served without a gateway grant.
 - Policy-as-code export/import (YAML) with signed approvals; policy change audit report.
 - Audit retention and deletion jobs aligned to `audit_retention_days`; PII-free guarantee tests on audit/metering tables.
 - Prompt/response redaction before any trace export (Presidio on the proxy path via LiteLLM guardrail hook or pre-callback).
@@ -76,6 +80,7 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 
 - ECS autoscaling on request count and p95 for both services; proxy ALB ingress by security group (TD-13).
 - **Response caching with ElastiCache** ([RESPONSE_CACHING.md](RESPONSE_CACHING.md)): `elasticache-redis` Terraform module (Serverless Valkey/Redis, TLS, AUTH token in Secrets Manager, SG from the proxy only), `REDIS_*` on the proxy, caching pinned in `litellm/config.yaml` for prod or configured at runtime from the Proxy Manager Cache panel (`POST /cache/settings`, test, ping, flush), per-tenant cache namespaces, `cache_hit` in usage metering and a cache-hit-rate tile on FinOps.
+- **Configuration copilot** (requested 2026-10-02, [PROXY_MANAGER_ENTERPRISE_DESIGN.md](PROXY_MANAGER_ENTERPRISE_DESIGN.md) §3.4): "Ask the gateway" panel grounded in the settings catalogue, version-matched LiteLLM docs, the effective configuration of the selected scope and FinOps/AIOps signals; explains, recommends, diagnoses and proposes changes as reviewable diffs (propose-only, scope-bound, audited, evaluated with Ragas); proactive insights on the Overview.
 - **T2 dedicated proxy** module for tenants that need their own LiteLLM instance, database and secret manager (Vault / Key Vault / GCP).
 - Streaming responses end-to-end (SSE) with guardrail output checks on the streamed buffer.
 - Circuit breaker and provider health routing (`cooldown_time`, `allowed_fails`) tuned from load tests; multi-region readiness review.
@@ -109,6 +114,9 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | M10 Tenant data separation (RLS, tenant-scoped policies/guardrails/MCP/reports) — isolation tier T1 | Sprint 4 | M9 |
 | M11 Response caching on ElastiCache with per-tenant namespaces | Sprint 5 | M2 |
 | M12 Dedicated-proxy tier (T2) available | Sprint 5 | M10 |
+| M13 Settings hierarchy GA (tenant → department → application, inheritance, scope switcher) | Sprint 3 | M9 |
+| M14 AI App control plane integrated: discovery document, capability manifest, gateway-issued credentials, token exchange, events | Sprint 4 | M13 |
+| M15 Guided configuration: catalogue, validation, profiles (Sprint 3) and copilot (Sprint 5) | Sprints 3, 5 | M13, M4 |
 
 ## Success metrics
 
