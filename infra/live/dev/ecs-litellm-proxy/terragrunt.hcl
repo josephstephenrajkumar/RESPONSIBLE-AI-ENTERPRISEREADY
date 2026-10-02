@@ -23,6 +23,7 @@ dependency "secrets" {
     secret_arns = {
       groq_api_key       = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
       litellm_master_key = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
+      litellm_salt_key   = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
     }
   }
 }
@@ -48,8 +49,15 @@ inputs = {
   database_url = dependency.aurora.outputs.postgres_url
 
   master_key_secret_arn = dependency.secrets.outputs.secret_arns.litellm_master_key
+  salt_key_secret_arn   = dependency.secrets.outputs.secret_arns.litellm_salt_key
+  store_model_in_db     = true
+  # Mount only the provider keys that are actually set. To enable Anthropic or
+  # OpenAI: store the key in the secret, add the line here and the provider to
+  # enabled_providers in ../ecs-ai-gateway, then redeploy both services.
   provider_secret_arns = {
     GROQ_API_KEY = dependency.secrets.outputs.secret_arns.groq_api_key
+    # ANTHROPIC_API_KEY = dependency.secrets.outputs.secret_arns.anthropic_api_key
+    # OPENAI_API_KEY    = dependency.secrets.outputs.secret_arns.openai_api_key
   }
 
   ingress_cidr_blocks = [dependency.network.outputs.vpc_cidr_block]

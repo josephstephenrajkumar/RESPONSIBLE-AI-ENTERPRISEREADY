@@ -41,6 +41,13 @@ class Settings:
     LLM_MAX_KEEPALIVE_CONNECTIONS = int(
         os.getenv('LLM_MAX_KEEPALIVE_CONNECTIONS', os.getenv('GROQ_MAX_KEEPALIVE_CONNECTIONS', '20'))
     )
+    # LiteLLM key with admin rights for the model catalogue (`/model/new`, `/model/delete`).
+    # Empty means "use LITELLM_API_KEY" (dev, where the gateway key is the master key).
+    LITELLM_ADMIN_API_KEY = os.getenv('LITELLM_ADMIN_API_KEY', '')
+    # Providers whose credentials the proxy actually holds (api key env var or IAM).
+    # The admin model catalogue only lets operators add models from these.
+    LLM_PROVIDERS_ENABLED = _csv(os.getenv('LLM_PROVIDERS_ENABLED', 'groq')) or ['groq']
+    BEDROCK_REGION = os.getenv('BEDROCK_REGION', os.getenv('AWS_REGION', 'ap-southeast-1'))
     # Optional allowlist enforced by this gateway before the proxy is called.
     # Empty means "any model the proxy exposes".
     LLM_ALLOWED_MODELS = _csv(os.getenv('LLM_ALLOWED_MODELS', ''))

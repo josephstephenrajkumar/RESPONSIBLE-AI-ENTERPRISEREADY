@@ -197,3 +197,33 @@ export async function fetchGatewayModels() {
   const response = await fetch(`${API_BASE}/gateway/models`, { headers: authHeaders() })
   return parseResponse(response)
 }
+
+export async function fetchModelCatalog() {
+  const response = await fetch(`${API_BASE}/gateway/catalog`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function fetchAvailableModels(provider, query = '') {
+  const params = query ? `?q=${encodeURIComponent(query)}` : ''
+  const response = await fetch(`${API_BASE}/gateway/catalog/providers/${encodeURIComponent(provider)}/available${params}`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function addCatalogModel(payload) {
+  const response = await fetch(`${API_BASE}/gateway/catalog/models`, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify(payload)
+  })
+  return parseResponse(response)
+}
+
+export async function deleteCatalogModel(modelId) {
+  const response = await fetch(`${API_BASE}/gateway/catalog/models/${encodeURIComponent(modelId)}`, { method: 'DELETE', headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function testCatalogModel(modelName) {
+  const response = await fetch(`${API_BASE}/gateway/catalog/models/${modelName}/test`, { method: 'POST', headers: authHeaders() })
+  return parseResponse(response)
+}

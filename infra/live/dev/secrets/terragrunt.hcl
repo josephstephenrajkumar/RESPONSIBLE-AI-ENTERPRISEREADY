@@ -37,6 +37,23 @@ inputs = {
       description = "LiteLLM virtual key for the AI Gateway service"
     }
 
+    # Encrypts provider credentials that LiteLLM stores for runtime-added models.
+    # Generated once; never rotate while the LiteLLM database exists.
+    litellm_salt_key = {
+      description = "LiteLLM salt key for credentials stored in the proxy database"
+    }
+
+    # Optional provider keys. Placeholders until an operator stores a value; a
+    # provider is only exposed in the admin catalogue when it is listed in the
+    # gateway's enabled_providers and its env var is mounted into the proxy.
+    anthropic_api_key = {
+      description = "Anthropic API key used by the LiteLLM proxy (optional)"
+    }
+
+    openai_api_key = {
+      description = "OpenAI API key used by the LiteLLM proxy (optional)"
+    }
+
     database_master_password = {
       description = "Aurora PostgreSQL master password"
     }

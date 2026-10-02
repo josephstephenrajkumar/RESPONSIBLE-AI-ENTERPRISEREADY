@@ -14,6 +14,7 @@ The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, 
 - React/Vite frontend prepared for S3 + CloudFront default HTTPS hosting.
 - FastAPI backend prepared for ECS Fargate as a synchronous AI Gateway.
 - **LiteLLM forward proxy** for all model calls (chat answers and Ragas/TruLens judges): model groups, retries, fallbacks, budgets, metered cost.
+- **Model catalogue** (admin): browse providers (Groq, Amazon Bedrock via IAM, Anthropic, OpenAI, Gemini, Mistral), add/test/remove models at runtime through LiteLLM's model API; chat selector grouped by provider. See [docs/MODEL_CATALOG.md](docs/MODEL_CATALOG.md).
 - **FinOps dashboard** (`finops`/`admin` roles): spend by model, tenant, user, purpose; unit economics; monthly budget gauge.
 - **AIOps dashboard** (`aiops`/`admin` roles): availability, p50/p95/p99 latency, error classes, retries/fallbacks, live dependency health.
 - Cognito/JWT-ready authentication with local development fallback.
@@ -27,6 +28,7 @@ The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, 
 - [Architecture Design Document](docs/ARCHITECTURE_DESIGN.md) — current-state review, requirements, target architecture, ADRs, FinOps/AIOps design
 - [Roadmap](docs/ROADMAP.md) — Sprint 1 (done) through Sprint 6
 - [Technical Debt Register](docs/TECH_DEBT.md)
+- [Model Catalogue](docs/MODEL_CATALOG.md) — multi-provider models through LiteLLM, admin screen, enabling a provider
 - [Architecture Blueprint](docs/ARCHITECTURE_BLUEPRINT.md) (v1 shape)
 - [AWS Service Mapping](docs/AWS_SERVICE_MAPPING.md)
 - [Migration Plan](docs/MIGRATION_PLAN.md)
@@ -102,7 +104,8 @@ docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d litellm
 | Endpoint | Purpose |
 |---|---|
 | `GET /gateway/health` | LiteLLM reachability, models served, credential-boundary check |
-| `GET /gateway/models` | Models the chat UI may select |
+| `GET /gateway/models` | Models the chat UI may select, grouped by provider |
+| `GET /gateway/catalog` | Admin model catalogue (providers, models, groups) |
 | `GET /reports/finops?days=30` | FinOps report (`finops`/`admin`) |
 | `GET /reports/aiops?hours=24` | AIOps report (`aiops`/`admin`) |
 | `http://localhost:16686` | Jaeger: `responsible-ai-chat-agent` and `litellm-proxy` services |

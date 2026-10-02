@@ -33,7 +33,7 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 
 - Apply `ecs-litellm-proxy` in dev; move the Groq key out of the gateway task; issue the gateway a virtual key with `max_budget` and model scope.
 - Per-tenant/team virtual keys and budgets (`/team/new`, `/key/generate`), RPM/TPM limits; map Cognito `custom:tenant_id` → LiteLLM team.
-- Add Amazon Bedrock models to `model_list` via the task role (no key); keep Groq as fallback.
+- ✅ Multi-provider model catalogue in the admin screen (LiteLLM `/model/*`, `store_model_in_db`); Bedrock via the proxy task role (no key). Remaining: promote evaluated models to `config.yaml` and define fallbacks across providers.
 - Langfuse callback on the proxy; remove app-side decorators (TD-11).
 - CloudWatch EMF metrics from the gateway (latency, errors, cost) and alarms on p95 / error rate / budget burn; SNS notifications.
 - Separate Postgres database/schema and credentials for LiteLLM (TD-13); Alembic migrations for the app schema (TD-04).

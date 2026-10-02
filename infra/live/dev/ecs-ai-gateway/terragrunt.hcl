@@ -23,6 +23,7 @@ dependency "secrets" {
       groq_api_key        = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
       guardrails_token    = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
       litellm_gateway_key = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
+      litellm_master_key  = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
     }
   }
 }
@@ -81,6 +82,10 @@ inputs = {
   llm_default_model          = "openai/gpt-oss-120b"
   llm_judge_model            = "judge-fast"
   llm_allowed_models         = ""
+  # Admin model catalogue: providers the proxy can call (Groq via key, Bedrock via
+  # the proxy task role). Model management uses the LiteLLM master key in dev.
+  enabled_providers            = ["groq", "bedrock"]
+  litellm_admin_key_secret_arn = dependency.secrets.outputs.secret_arns.litellm_master_key
   finops_monthly_budget_usd  = 50
 
   guardrails_token_secret_arn = ""

@@ -182,6 +182,13 @@ Existing tables are unchanged. LiteLLM keeps its own spend log (`LiteLLM_SpendLo
 - Proxy spans via the LiteLLM `otel` callback to the same collector (`litellm-proxy` service in Jaeger locally, X-Ray in AWS).
 - Metrics: the AIOps report derives availability, p50/p95/p99, error classes and fallback counts from `llm_usage_events`; CloudWatch alarms on proxy ALB 5xx and unhealthy hosts are in the module. Sprint 2 adds CloudWatch EMF metrics from the gateway so alarms can be set on p95 and error rate.
 
+### 4.7 Model catalogue (multi-provider)
+
+Administrators manage providers and models from the Configuration screen; the gateway wraps LiteLLM's model
+management API and adds a fixed provider registry, enablement driven by the credentials the proxy holds, explicit
+model enablement, metered test calls and audit events. Bedrock models need no key (proxy task role). Details,
+endpoints and the enable-a-provider procedure are in [MODEL_CATALOG.md](MODEL_CATALOG.md).
+
 ## 5. Key design decisions
 
 | ADR | Decision | Alternatives considered | Rationale |
@@ -196,6 +203,7 @@ Existing tables are unchanged. LiteLLM keeps its own spend log (`LiteLLM_SpendLo
 | ADR-08 | Proxy config distributed via **S3 object** loaded at task start. | Bake into image; Parameter Store. | Terraform-managed, diffable, no image rebuild; LiteLLM supports it natively. |
 | ADR-09 | **Postgres for LiteLLM** (dev: shared Aurora database; prod: separate DB/schema). | Run proxy stateless. | Virtual keys, team budgets and spend log need persistence. |
 | ADR-10 | Dashboard aggregation in the gateway over a bounded window (Python over ≤ 20 k rows). | Materialised views; CloudWatch Metrics. | Fast to ship, adequate for dev volumes; replaced by rollups/EMF in Sprint 2 (TD-07). |
+| ADR-12 | **Admin model catalogue over LiteLLM's model-management API** (`/model/info`, `/model/new`, `/model/delete`, price map) with `store_model_in_db: true`; explicit models per enabled provider, no wildcard routes; new models reference `os.environ/<KEY>`. | Wildcard provider routes; editing `config.yaml` for every model; storing provider keys in the app. | Lets operators onboard any provider/model (Groq, Bedrock via IAM, Anthropic, OpenAI…) without an app release while keeping the credential boundary, the allowlist and budgets intact. See [MODEL_CATALOG.md](MODEL_CATALOG.md). |
 | ADR-11 | Offline **mock upstream + `config.mock.yaml`** for zero-spend verification and CI. | Test only against Groq. | Keeps CI deterministic and free; proves routing, headers, retries and fallbacks. |
 
 ## 6. FinOps design
@@ -226,7 +234,8 @@ Existing tables are unchanged. LiteLLM keeps its own spend log (`LiteLLM_SpendLo
 |---|---|
 | `POST /chat` | `model` defaults to the gateway default; allowlist enforced (400). `metadata.usage` added: `gateway, served_model, prompt_tokens, completion_tokens, total_tokens, cost_usd, cost_source, latency_ms, proxy_overhead_ms, retries, fallbacks, status, error_type`. `metadata.provider` is `litellm`, `litellm-error`, `litellm-fallback` or `guardrails-policy`. |
 | `GET /gateway/health` | New. Live proxy check and configuration summary. |
-| `GET /gateway/models` | New. Models served by the proxy, filtered by the allowlist. |
+| `GET /gateway/models` | New. Models served by the proxy, filtered by the allowlist; `by_provider` grouping for the chat selector. |
+| `GET /gateway/catalog`, `GET /gateway/catalog/providers/{p}/available`, `POST /gateway/catalog/models`, `POST /gateway/catalog/models/{name}/test`, `DELETE /gateway/catalog/models/{id}` | New. Admin model catalogue over LiteLLM `/model/*` (roles `admin`, `model-admin`; browse for `policy-manager`). |
 | `GET /reports/finops?days=` | New. Requires `finops` or `admin`. |
 | `GET /reports/aiops?hours=` | New. Requires `aiops` or `admin`. |
 | `GET /policy` | `model` / `provider` now reflect live gateway settings; `llm_gateway` block added. |
@@ -242,6 +251,8 @@ Existing tables are unchanged. LiteLLM keeps its own spend log (`LiteLLM_SpendLo
 | `LLM_DEFAULT_MODEL` | `GROQ_MODEL` or `llama-3.3-70b-versatile` | Must exist in the proxy `model_list`. |
 | `LLM_JUDGE_MODEL` | = default model | `judge-fast` recommended. |
 | `LLM_ALLOWED_MODELS` | empty | Comma-separated allowlist. |
+| `LLM_PROVIDERS_ENABLED` | `groq` | Providers whose credentials the proxy holds (dev: `groq,bedrock`). |
+| `LITELLM_ADMIN_API_KEY` | = `LITELLM_API_KEY` | Key used for `/model/new` / `/model/delete`. |
 | `FINOPS_MONTHLY_BUDGET_USD` | `0` | Budget gauge. |
 
 Local stack: `docker compose up -d` (Jaeger, Postgres, LiteLLM) then run the backend natively; `docker compose --profile full up -d` also runs the gateway container. Offline: `tests/mock_llm_upstream.py` + `docker-compose.mock.yml`.

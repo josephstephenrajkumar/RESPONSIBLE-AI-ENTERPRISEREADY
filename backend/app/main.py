@@ -12,7 +12,9 @@ from app.auth import (
     get_current_user,
     require_aiops_viewer,
     require_finops_viewer,
+    require_model_admin,
     require_policy_manager,
+    user_can_manage_models,
     user_can_manage_policies,
     user_can_view_aiops,
     user_can_view_finops,
@@ -49,8 +51,10 @@ from app.schemas import (
     SafetyHubPolicyImport,
     SafetyPolicyUpdate,
     UsageMetadata,
+    CatalogModelCreate,
 )
 from app.llm_client import bind_request_context, llm_client, reset_request_context
+from app.model_catalog import CatalogError, model_catalog
 from app.responsible_ai import (
     evaluate_privacy as code_privacy,
     evaluate_safety as code_safety,
@@ -111,6 +115,7 @@ def startup_event():
 @app.on_event('shutdown')
 async def shutdown_event():
     await llm_client.close()
+    await model_catalog.close()
 
 
 @app.get('/health')
@@ -126,17 +131,100 @@ async def gateway_health(user: AuthenticatedUser = Depends(get_current_user)):
 
 @app.get('/gateway/models')
 async def gateway_models(user: AuthenticatedUser = Depends(get_current_user)):
+    """Models the chat screen may select, grouped by provider (LiteLLM /model/info)."""
     try:
         models = await llm_client.list_models()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f'LLM gateway is not reachable: {exc}') from exc
     if Settings.LLM_ALLOWED_MODELS:
         models = [model for model in models if model in Settings.LLM_ALLOWED_MODELS]
+    grouped = {'by_provider': {}, 'details': []}
+    if llm_client.mode == 'proxy':
+        try:
+            grouped = await model_catalog.grouped_models(Settings.LLM_ALLOWED_MODELS or None)
+        except Exception:
+            grouped = {'by_provider': {'unknown': models}, 'details': [{'id': m, 'provider': 'unknown'} for m in models]}
     return {
         'default_model': llm_client.default_model,
         'judge_model': llm_client.judge_model,
         'models': models,
+        'by_provider': grouped['by_provider'],
+        'details': grouped['details'],
         'gateway_mode': llm_client.mode,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Admin model catalogue (providers + models served by the LiteLLM proxy)
+# ---------------------------------------------------------------------------
+def _catalog_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, CatalogError):
+        return HTTPException(status_code=exc.status_code, detail=exc.detail)
+    if isinstance(exc, httpx.HTTPError):
+        return HTTPException(status_code=503, detail=f'LiteLLM proxy request failed: {exc}')
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get('/gateway/catalog')
+async def gateway_catalog(user: AuthenticatedUser = Depends(require_policy_manager)):
+    try:
+        return await model_catalog.catalog()
+    except Exception as exc:
+        raise _catalog_http_error(exc) from exc
+
+
+@app.get('/gateway/catalog/providers/{provider}/available')
+async def gateway_catalog_available(provider: str, q: str = '', user: AuthenticatedUser = Depends(require_policy_manager)):
+    try:
+        return await model_catalog.available_models(provider, q)
+    except Exception as exc:
+        raise _catalog_http_error(exc) from exc
+
+
+@app.post('/gateway/catalog/models', status_code=201)
+async def gateway_catalog_add(request: CatalogModelCreate, user: AuthenticatedUser = Depends(require_model_admin)):
+    actor = user.email or user.username or user.user_id
+    try:
+        return await model_catalog.add_model(request.provider, request.model, request.model_name, actor, request.description)
+    except Exception as exc:
+        raise _catalog_http_error(exc) from exc
+
+
+@app.delete('/gateway/catalog/models/{model_id}')
+async def gateway_catalog_delete(model_id: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    actor = user.email or user.username or user.user_id
+    try:
+        return await model_catalog.delete_model(model_id, actor)
+    except Exception as exc:
+        raise _catalog_http_error(exc) from exc
+
+
+@app.post('/gateway/catalog/models/{model_name:path}/test')
+async def gateway_catalog_test(model_name: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    """Send one tiny, metered completion through the proxy to prove the model works end to end."""
+    context_token = bind_request_context(
+        request_id=str(uuid.uuid4()), user_id=user.user_id, user_email=user.email, tenant_id=user.tenant_id,
+        client_id='admin-catalog', agent_id='model-test', mode='test',
+    )
+    try:
+        result = await llm_client.complete(
+            [{'role': 'user', 'content': 'Reply with the single word OK.'}],
+            model=model_name, temperature=0.0, max_tokens=64, purpose='catalog_test',
+        )
+    finally:
+        reset_request_context(context_token)
+    return {
+        'model': model_name,
+        'status': result.get('status'),
+        'served_model': result.get('served_model'),
+        'answer': (result.get('answer') or '')[:200],
+        'finish_reason': result.get('finish_reason'),
+        'latency_ms': result.get('latency_ms'),
+        'cost_usd': result.get('cost_usd'),
+        'cost_source': result.get('cost_source'),
+        'total_tokens': result.get('tokens'),
+        'error_type': result.get('error_type'),
+        'http_status': result.get('http_status'),
     }
 
 
@@ -626,6 +714,7 @@ def auth_me(user: AuthenticatedUser = Depends(get_current_user)):
             'activate_policies': user_can_manage_policies(user),
             'view_finops': user_can_view_finops(user),
             'view_aiops': user_can_view_aiops(user),
+            'manage_models': user_can_manage_models(user),
         },
     }
 

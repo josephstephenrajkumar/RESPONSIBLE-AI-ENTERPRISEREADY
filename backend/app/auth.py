@@ -112,6 +112,12 @@ def user_can_view_finops(user: AuthenticatedUser) -> bool:
     return bool(allowed_groups.intersection(user.groups))
 
 
+def user_can_manage_models(user: AuthenticatedUser) -> bool:
+    """Add/remove models and providers in the LiteLLM catalogue (cost-bearing)."""
+    allowed_groups = {'admin', 'model-admin'}
+    return bool(allowed_groups.intersection(user.groups))
+
+
 def user_can_view_aiops(user: AuthenticatedUser) -> bool:
     allowed_groups = {'admin', 'aiops', 'sre', 'platform-ops'}
     return bool(allowed_groups.intersection(user.groups))
@@ -135,6 +141,17 @@ async def require_finops_viewer(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail='FinOps permission is required',
+        )
+    return user
+
+
+async def require_model_admin(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    if not user_can_manage_models(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Model administration permission is required',
         )
     return user
 

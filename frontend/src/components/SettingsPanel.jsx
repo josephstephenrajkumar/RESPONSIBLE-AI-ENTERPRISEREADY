@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { fetchGatewayModels } from '../api'
 
+const PROVIDER_LABELS = { groq: 'Groq', bedrock: 'Amazon Bedrock', anthropic: 'Anthropic', openai: 'OpenAI', gemini: 'Google Gemini', mistral: 'Mistral AI' }
+
 export default function SettingsPanel({ settings, onChange }) {
   const update = (field, value) => onChange({ ...settings, [field]: value })
   const [models, setModels] = useState(null)
+  const [byProvider, setByProvider] = useState({})
   const [gatewayNote, setGatewayNote] = useState('')
 
   // The model list is whatever the LiteLLM proxy currently serves (filtered by
@@ -13,7 +16,9 @@ export default function SettingsPanel({ settings, onChange }) {
     fetchGatewayModels()
       .then(data => {
         setModels(data.models || [])
-        setGatewayNote(`${data.gateway_mode === 'proxy' ? 'LiteLLM proxy' : 'direct provider'} · judge: ${data.judge_model}`)
+        setByProvider(data.by_provider || {})
+        const providerCount = Object.keys(data.by_provider || {}).length
+        setGatewayNote(`${data.gateway_mode === 'proxy' ? 'LiteLLM proxy' : 'direct provider'} · ${providerCount || 1} provider${providerCount === 1 ? '' : 's'} · judge: ${data.judge_model}`)
       })
       .catch(err => {
         setModels([])
@@ -39,7 +44,13 @@ export default function SettingsPanel({ settings, onChange }) {
         {hasList ? (
           <select value={currentInList ? settings.model : ''} onChange={(event) => update('model', event.target.value)}>
             {!currentInList && <option value="">{settings.model ? `${settings.model} (not served)` : 'Gateway default'}</option>}
-            {models.map(model => <option key={model} value={model}>{model}</option>)}
+            {Object.keys(byProvider).length > 0
+              ? Object.entries(byProvider).sort(([a], [b]) => a.localeCompare(b)).map(([provider, names]) => (
+                <optgroup key={provider} label={PROVIDER_LABELS[provider] || provider}>
+                  {names.map(model => <option key={model} value={model}>{model}</option>)}
+                </optgroup>
+              ))
+              : models.map(model => <option key={model} value={model}>{model}</option>)}
           </select>
         ) : (
           <input value={settings.model} onChange={(event) => update('model', event.target.value)} />

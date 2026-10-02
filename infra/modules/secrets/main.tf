@@ -28,12 +28,12 @@ locals {
 resource "random_password" "generated" {
   for_each = {
     for key, value in var.secrets : key => value
-    if contains(["database_master_password", "jwt_secret", "litellm_master_key"], key)
+    if contains(["database_master_password", "jwt_secret", "litellm_master_key", "litellm_salt_key"], key)
   }
 
   length = each.key == "database_master_password" ? 24 : 48
   # LiteLLM keys are sent as bearer tokens; keep them URL/header safe.
-  special          = each.key != "litellm_master_key"
+  special          = !contains(["litellm_master_key", "litellm_salt_key"], each.key)
   override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 

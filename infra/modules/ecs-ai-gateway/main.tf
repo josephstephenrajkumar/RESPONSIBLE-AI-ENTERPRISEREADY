@@ -68,6 +68,18 @@ variable "llm_allowed_models" {
   default = ""
 }
 
+variable "enabled_providers" {
+  description = "Providers whose credentials the LiteLLM proxy holds; the admin catalogue only offers these."
+  type        = list(string)
+  default     = ["groq"]
+}
+
+variable "litellm_admin_key_secret_arn" {
+  description = "Optional LiteLLM key allowed to manage models (/model/new). Empty = use the gateway key."
+  type        = string
+  default     = ""
+}
+
 variable "finops_monthly_budget_usd" {
   type    = number
   default = 0
@@ -157,6 +169,9 @@ locals {
   llm_secrets = concat(
     var.llm_gateway_mode == "proxy" && var.litellm_api_key_secret_arn != "" ? [
       { name = "LITELLM_API_KEY", valueFrom = var.litellm_api_key_secret_arn }
+    ] : [],
+    var.llm_gateway_mode == "proxy" && var.litellm_admin_key_secret_arn != "" ? [
+      { name = "LITELLM_ADMIN_API_KEY", valueFrom = var.litellm_admin_key_secret_arn }
     ] : [],
     var.llm_gateway_mode == "direct" && var.groq_api_key_secret_arn != "" ? [
       { name = "GROQ_API_KEY", valueFrom = var.groq_api_key_secret_arn }
@@ -315,6 +330,7 @@ resource "aws_iam_role_policy" "execution_secrets" {
         ]
         Resource = compact([
           var.litellm_api_key_secret_arn,
+          var.litellm_admin_key_secret_arn,
           var.groq_api_key_secret_arn,
           var.guardrails_token_secret_arn
         ])
@@ -358,6 +374,17 @@ resource "aws_iam_role_policy" "task_observability" {
           "cloudwatch:PutMetricData"
         ]
         Resource = "*"
+      },
+      # Read-only Bedrock discovery for the admin model catalogue (what is
+      # invokable in this region). Invocation itself happens in the proxy task.
+      {
+        Effect = "Allow"
+        Action = [
+          "bedrock:ListFoundationModels",
+          "bedrock:ListInferenceProfiles",
+          "bedrock:GetFoundationModel"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -397,6 +424,8 @@ resource "aws_ecs_task_definition" "this" {
         { name = "LLM_DEFAULT_MODEL", value = var.llm_default_model },
         { name = "LLM_JUDGE_MODEL", value = var.llm_judge_model },
         { name = "LLM_ALLOWED_MODELS", value = var.llm_allowed_models },
+        { name = "LLM_PROVIDERS_ENABLED", value = join(",", var.enabled_providers) },
+        { name = "BEDROCK_REGION", value = data.aws_region.current.region },
         { name = "FINOPS_MONTHLY_BUDGET_USD", value = tostring(var.finops_monthly_budget_usd) },
         { name = "GROQ_MODEL", value = var.llm_default_model },
         { name = "GROQ_API_URL", value = var.groq_api_url },

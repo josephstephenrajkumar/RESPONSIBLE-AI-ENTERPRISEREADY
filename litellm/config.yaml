@@ -93,7 +93,10 @@ general_settings:
   # Without it the proxy still works (master key only, cost still returned in
   # headers) but keys and spend are not persisted.
   database_url: os.environ/DATABASE_URL
-  store_model_in_db: false
+  # Models added from the admin catalogue (/model/new) are stored in Postgres and
+  # merged with this file on start-up. Requires LITELLM_SALT_KEY to encrypt stored
+  # credentials; keep that key stable for the life of the database.
+  store_model_in_db: true
   # Protect the proxy's management routes; the gateway only needs the
   # OpenAI-compatible routes.
   allow_requests_on_db_unavailable: true

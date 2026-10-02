@@ -47,7 +47,8 @@ services:
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev-master-key}
       DATABASE_URL: postgresql://litellm:litellm@litellm-db:5432/litellm
-      STORE_MODEL_IN_DB: "False"
+      STORE_MODEL_IN_DB: "True"
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-sk-local-dev-salt-key-do-not-rotate}
       LITELLM_LOG: INFO
       # OpenTelemetry export for the `otel` callback in litellm/config.yaml
       OTEL_EXPORTER: otlp_http
@@ -77,6 +78,7 @@ services:
       LLM_GATEWAY_MODE: proxy
       LITELLM_PROXY_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev-master-key}
+      LLM_PROVIDERS_ENABLED: groq
       # Containerised gateway must not hold the provider key.
       GROQ_API_KEY: ""
       DATABASE_URL: sqlite:////data/responsible_ai.db

@@ -256,6 +256,18 @@ AGGREGATE_CHECKS = [
         ],
     },
     {
+        'id': 'CATALOG-01',
+        'framework': 'LiteLLM',
+        'path': '/gateway/catalog',
+        'name': 'Admin model catalogue lists providers and models from the proxy',
+        'expect': [
+            ('providers listed', lambda d: len(d.get('providers', [])) >= 4),
+            ('at least one provider enabled', lambda d: any(p.get('enabled') for p in d.get('providers', []))),
+            ('configured models listed with provider and pricing', lambda d: all(m.get('provider') and m.get('source') in {'config', 'db'} for m in d.get('models', [])) and len(d.get('models', [])) > 0),
+            ('default model is in the catalogue', lambda d: any(m.get('model_name') == d.get('default_model') for m in d.get('models', []))),
+        ],
+    },
+    {
         'id': 'FINOPS-01',
         'framework': 'FinOps',
         'path': '/reports/finops?days=7',

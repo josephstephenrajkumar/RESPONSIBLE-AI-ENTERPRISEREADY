@@ -9,6 +9,7 @@ import GuardrailsDashboard from './components/GuardrailsDashboard'
 import FinOpsDashboard from './components/FinOpsDashboard'
 import AIOpsDashboard from './components/AIOpsDashboard'
 import AuthStatus from './components/AuthStatus'
+import ModelCatalog from './components/ModelCatalog'
 import { sendChat, fetchPolicy } from './api'
 
 // `model` has no client-side default: it must come from the backend's /policy
@@ -116,6 +117,7 @@ export default function App() {
       case 'configuration':
         return (
           <main className="admin-screen">
+            <ModelCatalog canManage={permissions.manage_models === true} />
             <PolicyManager user={user} view="configuration" />
           </main>
         )

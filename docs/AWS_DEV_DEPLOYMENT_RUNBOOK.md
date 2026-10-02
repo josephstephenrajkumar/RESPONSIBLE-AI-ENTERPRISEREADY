@@ -314,6 +314,15 @@ curl -X POST "$PROXY_URL/key/generate" -H "Authorization: Bearer $LITELLM_MASTER
 
 Store the returned key in `responsible-ai-dev/litellm_gateway_key` and force a new deployment of the gateway service.
 
+### Adding providers and models
+
+Use **Configuration → Model Catalogue** in the app (role `admin` or `model-admin`): pick an enabled provider,
+choose a model from the discovered list (Bedrock shows what is invokable in the region), add it, then **Test** it.
+Models added this way are stored in the proxy database (`store_model_in_db: true`) and survive restarts. To enable
+Anthropic, OpenAI, Gemini or Mistral, store the key in Secrets Manager, mount it into the proxy
+(`provider_secret_arns`) and add the provider to the gateway's `enabled_providers`, then plan/apply both ECS
+modules — see [MODEL_CATALOG.md](MODEL_CATALOG.md).
+
 ### Rotate the Groq key
 
 `put-secret-value` on `responsible-ai-dev/groq_api_key`, then force a new deployment of the **proxy** service only.

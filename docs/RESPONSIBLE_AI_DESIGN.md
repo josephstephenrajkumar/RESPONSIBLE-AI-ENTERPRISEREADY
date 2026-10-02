@@ -249,7 +249,7 @@ OpenTelemetry parent span: /chat
     |     `-- Guardrails AI can block unsafe prompts before model invocation
     |
     |-- groq_api_call, skipped when framework safety blocks input
-    |     |-- GroqClient.send_prompt()
+    |     |-- llm_client.chat() -> LiteLLM proxy
     |     |-- optional Langfuse @observe in framework mode
     |     `-- HTTPX POST to Groq /chat/completions
     |

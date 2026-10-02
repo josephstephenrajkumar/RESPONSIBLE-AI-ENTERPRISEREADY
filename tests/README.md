@@ -127,6 +127,7 @@ Run after the scenarios, so they assert on exactly the data the frontend will re
 | `DASHBOARD-01` | `/reports/evaluations` | Events recorded; **real** `ragas` and `trulens` engine counts > 0; averages computed |
 | `DASHBOARD-02` | `/reports/guardrails` | Violation report returned |
 | `DASHBOARD-03` | `/observability` | Tracing status and trace endpoint reported (drives the header badge) |
+| `CATALOG-01` | `/gateway/catalog` | Providers listed with enablement; configured models carry provider, source and pricing; default model present |
 | `GATEWAY-01` | `/gateway/health` | Proxy mode, reachable, default model served, **application holds no provider key** |
 | `FINOPS-01` | `/reports/finops?days=7` | Calls and spend recorded; `litellm` cost source; `chat` and `judge_*` purposes present; budget posture and unit economics computed |
 | `AIOPS-01` | `/reports/aiops?hours=24` | Availability and p95 computed; LLM gateway and database dependencies `ok`; guardrail block stats present |

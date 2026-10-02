@@ -150,3 +150,16 @@ class PolicyActionRequest(BaseModel):
 
 class PolicyTestRequest(BaseModel):
     message: str = Field(..., min_length=1)
+
+
+class CatalogModelCreate(BaseModel):
+    """Add a model from an enabled provider to the LiteLLM catalogue.
+
+    `model` is the provider-side id (e.g. `openai/gpt-oss-20b` for Groq, an
+    `apac.*` inference-profile id for Bedrock). Provider keys are never part of
+    this request: the proxy resolves `os.environ/<KEY>` itself.
+    """
+    provider: str = Field(..., min_length=1)
+    model: str = Field(..., min_length=1)
+    model_name: str | None = None
+    description: str = ''

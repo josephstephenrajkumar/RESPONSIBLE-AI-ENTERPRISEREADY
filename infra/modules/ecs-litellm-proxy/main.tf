@@ -34,6 +34,17 @@ variable "master_key_secret_arn" {
   type = string
 }
 
+variable "salt_key_secret_arn" {
+  description = "Secrets Manager ARN of LITELLM_SALT_KEY (encrypts credentials of runtime-added models)."
+  type        = string
+}
+
+variable "store_model_in_db" {
+  description = "Persist models added through /model/new in Postgres (admin model catalogue)."
+  type        = bool
+  default     = true
+}
+
 variable "provider_secret_arns" {
   description = "Map of provider env var name -> Secrets Manager ARN, e.g. { GROQ_API_KEY = arn }."
   type        = map(string)
@@ -254,7 +265,7 @@ resource "aws_iam_role_policy" "execution_secrets" {
       {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue", "kms:Decrypt"]
-        Resource = concat([var.master_key_secret_arn], values(var.provider_secret_arns))
+        Resource = concat([var.master_key_secret_arn, var.salt_key_secret_arn], values(var.provider_secret_arns))
       }
     ]
   })
@@ -345,7 +356,7 @@ resource "aws_ecs_task_definition" "this" {
         { name = "LITELLM_CONFIG_BUCKET_OBJECT_KEY", value = local.config_key },
         { name = "LITELLM_CONFIG_BUCKET_TYPE", value = "s3" },
         { name = "DATABASE_URL", value = var.database_url },
-        { name = "STORE_MODEL_IN_DB", value = "False" },
+        { name = "STORE_MODEL_IN_DB", value = var.store_model_in_db ? "True" : "False" },
         { name = "LITELLM_LOG", value = "INFO" },
         { name = "OTEL_EXPORTER", value = "otlp_http" },
         { name = "OTEL_ENDPOINT", value = var.otel_exporter_endpoint },
@@ -353,7 +364,10 @@ resource "aws_ecs_task_definition" "this" {
         { name = "AWS_REGION", value = data.aws_region.current.region }
       ]
       secrets = concat(
-        [{ name = "LITELLM_MASTER_KEY", valueFrom = var.master_key_secret_arn }],
+        [
+          { name = "LITELLM_MASTER_KEY", valueFrom = var.master_key_secret_arn },
+          { name = "LITELLM_SALT_KEY", valueFrom = var.salt_key_secret_arn },
+        ],
         [for env_name, arn in var.provider_secret_arns : { name = env_name, valueFrom = arn }]
       )
       healthCheck = {

@@ -33,7 +33,8 @@ deployment does not touch.
 ## Secrets Manager (`responsible-ai-dev/*`)
 
 `groq_api_key` (set), `litellm_master_key` (generated), `litellm_gateway_key` (dev: copy of master key — TD-25),
-`database_master_password` (generated), `jwt_secret` (generated, unused — TD-17)
+`litellm_salt_key` (generated; encrypts runtime-added model credentials), `anthropic_api_key` / `openai_api_key`
+(placeholders, not mounted), `database_master_password` (generated), `jwt_secret` (generated, unused — TD-17)
 
 ## Aurora PostgreSQL
 
@@ -53,7 +54,8 @@ deployment does not touch.
   log group `/ecs/responsible-ai-dev-litellm-proxy`
 - AI Gateway: cluster `responsible-ai-dev-cluster`, service `responsible-ai-dev-ai-gateway`
   (1 vCPU / 2 GB, image tag `aed1bb5`), internal ALB `responsible-ai-dev-ai-gw`, log group `/ecs/responsible-ai-dev-ai-gateway`
-- Gateway task mounts only `LITELLM_API_KEY`; `GROQ_API_KEY` is mounted only in the proxy task
+- Gateway task mounts `LITELLM_API_KEY` and `LITELLM_ADMIN_API_KEY` (model catalogue); `GROQ_API_KEY` is mounted only in the proxy task
+- Enabled providers for the admin model catalogue: `groq`, `bedrock` (proxy task role)
 
 ## API Gateway
 
