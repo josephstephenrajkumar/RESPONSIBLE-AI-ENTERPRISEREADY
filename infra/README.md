@@ -6,7 +6,7 @@ The intended deployment keeps the chat flow synchronous:
 
 ```text
 CloudFront -> S3 frontend
-React -> API Gateway HTTP API -> ECS Fargate AI Gateway -> Groq
+React -> API Gateway HTTP API -> ECS Fargate AI Gateway -> ECS Fargate LiteLLM proxy -> Groq / Bedrock
 AI Gateway -> Aurora PostgreSQL
 ```
 
@@ -22,6 +22,7 @@ infra/
     cognito/
     aurora-postgres/
     ecr/
+    ecs-litellm-proxy/
     ecs-ai-gateway/
     api-gateway/
     secrets/
@@ -48,7 +49,8 @@ Use:
 4. `aurora-postgres`
 5. `ecr`
 6. build and push backend image
-7. `ecs-ai-gateway`
-8. `api-gateway`
-9. `frontend-s3-cloudfront`
-10. `observability`
+7. `ecs-litellm-proxy`
+8. `ecs-ai-gateway`
+9. `api-gateway`
+10. `frontend-s3-cloudfront`
+11. `observability`

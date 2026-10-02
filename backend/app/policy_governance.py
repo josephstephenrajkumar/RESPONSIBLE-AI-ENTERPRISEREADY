@@ -108,6 +108,63 @@ def _replace_hub_validators(policy: SafetyPolicy, payload: Dict[str, Any]) -> No
         )
 
 
+def disable_policy_for_runtime_error(policy_id: int, reason: str, validator_class: str = '') -> bool:
+    """Disable a policy that cannot load at runtime, recording why in the audit trail.
+
+    Returns True only when this call is what disabled it, so callers can report the
+    change once rather than on every policy reload.
+    """
+    with SessionLocal() as session:
+        policy = session.query(SafetyPolicy).filter_by(id=policy_id).one_or_none()
+        if policy is None or not policy.enabled:
+            return False
+
+        policy.enabled = False
+        policy.updated_at = datetime.utcnow()
+        _audit(
+            session,
+            policy_id,
+            'auto_disable',
+            'system:validator-health',
+            {
+                'reason': reason,
+                'validator_class': validator_class,
+                'previous_status': policy.status,
+            },
+        )
+        session.commit()
+        return True
+
+
+def get_auto_disable_reasons() -> Dict[int, Dict[str, Any]]:
+    """Most recent auto-disable audit record per policy.
+
+    Once a broken policy is disabled it stops being compiled, so the live validator
+    error disappears. The audit trail is what keeps the explanation available, so the
+    admin UI can still say why a policy was turned off rather than just showing it as
+    inexplicably disabled.
+    """
+    with SessionLocal() as session:
+        records = (
+            session.query(PolicyAuditEvent)
+            .filter(PolicyAuditEvent.action == 'auto_disable')
+            .order_by(PolicyAuditEvent.created_at.desc(), PolicyAuditEvent.id.desc())
+            .all()
+        )
+    latest: Dict[int, Dict[str, Any]] = {}
+    for record in records:
+        if record.policy_id is None or record.policy_id in latest:
+            continue
+        details = _loads_json(record.details, {})
+        latest[record.policy_id] = {
+            'reason': details.get('reason', ''),
+            'validator_class': details.get('validator_class'),
+            'disabled_at': record.created_at.isoformat() + 'Z',
+            'actor': record.actor,
+        }
+    return latest
+
+
 def list_policies() -> List[Dict[str, Any]]:
     with SessionLocal() as session:
         records = (

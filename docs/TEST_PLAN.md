@@ -1,5 +1,72 @@
 # Test Plan
 
+For automated scenario coverage of the responsible-AI frameworks (Guardrails, Presidio,
+Ragas, TruLens) against a running gateway, see [`tests/README.md`](../tests/README.md)
+and run `backend/venv/bin/python3 tests/run_scenarios.py`. The manual checks below
+remain useful for verifying a fresh environment.
+
+## Unit tests (no proxy required)
+
+```bash
+cd backend && ./venv/bin/python -m unittest discover -s tests -v
+```
+
+Covers the LiteLLM gateway client (header parsing, cost fallback, error normalisation, no silent
+bypass of the proxy, sync path used by TruLens, model allowlist) and the FinOps/AIOps aggregations.
+
+## LiteLLM proxy path
+
+1. Start the local stack and confirm the proxy serves the configured models:
+
+   ```bash
+   docker compose up -d
+   curl -s -H "Authorization: Bearer sk-local-dev-master-key" http://localhost:4000/v1/models
+   ```
+
+2. Confirm the gateway sees the proxy and holds no provider key:
+
+   ```bash
+   curl -s http://localhost:8000/gateway/health
+   ```
+
+   Expected: `"mode": "proxy"`, `"reachable": true`, `"default_model_available": true`,
+   `"application_holds_provider_key": false` (start the backend with `GROQ_API_KEY` empty).
+
+3. Send a chat and check the usage block:
+
+   ```bash
+   curl -s -X POST http://localhost:8000/chat -H "Content-Type: application/json" \
+     -d '{"message":"hello","mode":"code","max_tokens":20}' | python3 -m json.tool
+   ```
+
+   Expected: `metadata.provider` is `litellm`, `metadata.usage.cost_source` is `litellm`,
+   `served_model`, `total_tokens` and `latency_ms` are populated.
+
+4. Confirm the dashboards have data (admin user locally):
+
+   ```bash
+   curl -s "http://localhost:8000/reports/finops?days=7"
+   curl -s "http://localhost:8000/reports/aiops?hours=24"
+   ```
+
+5. Exercise retries/fallbacks and latency with the offline mock (see README "Offline / zero-spend mode"):
+   request `"model":"mock-fail"` (expect `usage.fallbacks` ≥ 1) and `"model":"mock-slow"` (expect
+   `latency_ms` ≈ 2000), then check the AIOps "Per model" table.
+
+## AWS dev smoke test
+
+With a Cognito id token for an `admin` user (runbook §15):
+
+```bash
+API=https://0nl4sfks87.execute-api.ap-southeast-1.amazonaws.com
+curl -s "$API/health"
+curl -s -H "Authorization: Bearer $TOKEN" "$API/gateway/health" | python3 -m json.tool
+backend/venv/bin/python tests/run_scenarios.py --base-url "$API" --token "$TOKEN" --only LITELLM
+```
+
+Expected: `application_holds_provider_key: false`, `default_model_available: true`, `LITELLM-*` scenarios pass, and
+the FinOps/AIOps dashboards show the calls with `cost_source: litellm`.
+
 ## Backend
 
 1. Install backend dependencies:
@@ -9,10 +76,10 @@
    pip install -r requirements.txt
    ```
 
-2. Start Jaeger when testing trace export:
+2. Start the local stack (Jaeger, Postgres, LiteLLM proxy):
 
    ```bash
-   docker compose up jaeger
+   docker compose up -d
    ```
 
 3. Start the backend:

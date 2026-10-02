@@ -18,7 +18,7 @@ dependency "ecs" {
   config_path = "../ecs-ai-gateway"
 
   mock_outputs = {
-    alb_listener_arn = "arn:aws:elasticloadbalancing:ap-southeast-1:311464491957:listener/app/mock/123/456"
+    alb_listener_arn = "arn:aws:elasticloadbalancing:ap-southeast-1:767141477889:listener/app/mock/123/456"
   }
 }
 
@@ -30,7 +30,7 @@ inputs = {
   allowed_origins = [
     "http://localhost:5173",
     "http://localhost:3000",
-    "https://df22y6w4tmruy.cloudfront.net"
+    "https://d12wylhj234wu3.cloudfront.net",
   ]
 
   tags = {

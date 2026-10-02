@@ -28,22 +28,23 @@ inputs = {
 
   # App client configuration
   app_client_name = "responsible-ai-app-dev"
-  domain_prefix   = "responsible-ai-dev-311464491957"
+  allow_admin_user_password_auth = true
+  domain_prefix   = "responsible-ai-dev-767141477889"
   callback_urls = [
     "http://localhost:5173",
     "http://localhost:5173/",
     "http://localhost:3000",
     "http://localhost:3000/",
-    "https://df22y6w4tmruy.cloudfront.net",
-    "https://df22y6w4tmruy.cloudfront.net/"
+    "https://d12wylhj234wu3.cloudfront.net",
+    "https://d12wylhj234wu3.cloudfront.net/",
   ]
   logout_urls = [
     "http://localhost:5173",
     "http://localhost:5173/",
     "http://localhost:3000",
     "http://localhost:3000/",
-    "https://df22y6w4tmruy.cloudfront.net",
-    "https://df22y6w4tmruy.cloudfront.net/"
+    "https://d12wylhj234wu3.cloudfront.net",
+    "https://d12wylhj234wu3.cloudfront.net/",
   ]
 
   allowed_oauth_scopes = ["email", "openid", "profile"]

@@ -1,0 +1,83 @@
+# LiteLLM proxy configuration for the Responsible AI Enterprise Gateway.
+#
+# The proxy is the only component that holds provider credentials. The FastAPI
+# AI Gateway talks to it over the OpenAI-compatible API with a LiteLLM virtual
+# key (or the master key in local development) and never sees GROQ_API_KEY.
+#
+# Local:  docker compose up -d        (mounts this file into the litellm container)
+# AWS:    infra/modules/ecs-litellm-proxy uploads this file to S3 and the task
+#         loads it via LITELLM_CONFIG_BUCKET_NAME / LITELLM_CONFIG_BUCKET_OBJECT_KEY.
+#
+# Reference: https://docs.litellm.ai/docs/proxy/configs
+
+model_list:
+  # --- Chat models exposed to the gateway. Only models the Groq account actually
+  #     serves are listed; llama-3.x are not available on this account. ---
+  - model_name: openai/gpt-oss-120b
+    litellm_params:
+      model: groq/openai/gpt-oss-120b
+      api_key: os.environ/GROQ_API_KEY
+    model_info:
+      description: Default chat model (OpenAI GPT-OSS 120B on Groq)
+
+  - model_name: openai/gpt-oss-20b
+    litellm_params:
+      model: groq/openai/gpt-oss-20b
+      api_key: os.environ/GROQ_API_KEY
+    model_info:
+      description: Fast, low-cost model for judges and fallbacks (GPT-OSS 20B on Groq)
+
+  # --- Model groups. The app can target a *capability* instead of a vendor model,
+  #     which is what lets FinOps/AIOps re-route without an application deploy. ---
+  - model_name: chat-default
+    litellm_params:
+      model: groq/openai/gpt-oss-120b
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: judge-fast
+    litellm_params:
+      model: groq/openai/gpt-oss-20b
+      api_key: os.environ/GROQ_API_KEY
+      # Judges return a short verdict; low reasoning effort cuts hidden
+      # reasoning tokens (and cost) without changing the chat model.
+      reasoning_effort: low
+
+  # Add further providers here without touching application code, e.g.
+  # - model_name: llama-3.3-70b-versatile
+  #   litellm_params:
+  #     model: groq/llama-3.3-70b-versatile      # enable if the Groq account serves it
+  #     api_key: os.environ/GROQ_API_KEY
+  # - model_name: gpt-4o-mini
+  #   litellm_params:
+  #     model: openai/gpt-4o-mini
+  #     api_key: os.environ/OPENAI_API_KEY
+  # - model_name: claude-3-5-haiku
+  #   litellm_params:
+  #     model: bedrock/anthropic.claude-3-5-haiku-20241022-v1:0
+  #     aws_region_name: ap-southeast-1
+
+# router_settings (retries, timeout, cooldown, fallbacks) are NOT pinned here on
+# purpose: LiteLLM refuses runtime changes to keys set in this file. They are seeded
+# from litellm/runtime_defaults.json by the gateway and managed in the Proxy Manager.
+
+litellm_settings:
+  # Pinned (platform-owned): metering headers and the OpenTelemetry callback.
+  # drop_params / request_timeout / success_callback / cache live in the proxy
+  # database (runtime_defaults.json + Proxy Manager) so administrators can change them.
+  set_verbose: false
+  return_response_headers: true
+  callbacks: ["otel"]
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # Postgres is required for virtual keys, team budgets and the spend log.
+  # Without it the proxy still works (master key only, cost still returned in
+  # headers) but keys and spend are not persisted.
+  database_url: os.environ/DATABASE_URL
+  # Models added from the admin catalogue (/model/new) are stored in Postgres and
+  # merged with this file on start-up. Requires LITELLM_SALT_KEY to encrypt stored
+  # credentials; keep that key stable for the life of the database.
+  store_model_in_db: true
+  # Protect the proxy's management routes; the gateway only needs the
+  # OpenAI-compatible routes.
+  allow_requests_on_db_unavailable: true

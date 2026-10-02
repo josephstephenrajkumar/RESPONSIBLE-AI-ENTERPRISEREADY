@@ -5,7 +5,12 @@ from importlib import import_module
 from threading import RLock
 
 from app.framework_mode.langfuse_observability import langfuse_observe
-from app.policy_governance import active_policies, record_runtime_decision, summarize_policy_test
+from app.policy_governance import (
+    active_policies,
+    disable_policy_for_runtime_error,
+    record_runtime_decision,
+    summarize_policy_test,
+)
 from app.telemetry import tracer
 
 warnings.filterwarnings(
@@ -40,6 +45,27 @@ _compiled_policy_cache = []
 _hub_policy_cache = []
 _compiled_policy_version = 'none'
 _cache_lock = RLock()
+
+# Per-policy runtime health for hub validators, surfaced to the admin UI so a
+# policy that reads as "active" but cannot actually load is visible rather than
+# silently skipped. Populated whenever the guard is built.
+_validator_health = []
+
+# Only a genuinely absent validator package is treated as permanent (and so
+# auto-disabled). Config errors (bad/missing constructor params) and transient
+# errors (network, model download) are reported but left enabled, because they
+# are fixable without removing the policy and can recover on their own.
+_PERMANENT_ERROR_TYPES = (ModuleNotFoundError, ImportError)
+
+
+def get_validator_health():
+    with _cache_lock:
+        return [dict(item) for item in _validator_health]
+
+
+def get_active_policy_version():
+    with _cache_lock:
+        return _compiled_policy_version
 
 _BUILTIN_HIGH_RISK_PATTERNS = [
     {
@@ -85,9 +111,13 @@ _BUILTIN_HIGH_RISK_COMPILED = [
 
 
 def _module_name_from_hub_uri(hub_uri):
+    # Guardrails Hub validators are public PyPI packages under the `guardrails_ai`
+    # namespace (no account/token required) - see app/guardrails_hub_catalog.py
+    # and https://guardrailsai.com/hub/keys. `hub://<namespace>/<slug>` imports as
+    # `guardrails_ai.<slug>` regardless of `<namespace>`.
     validator_id = (hub_uri or '').replace('hub://', '')
-    namespace, package = validator_id.split('/', 1)
-    return f'{namespace}_grhub_{package}'.replace('-', '_')
+    _namespace, package = validator_id.split('/', 1)
+    return f'guardrails_ai.{package}'.replace('-', '_')
 
 
 def _load_hub_validator_class(item):
@@ -138,11 +168,51 @@ def reload_safety_policies():
         with _cache_lock:
             _compiled_policy_cache, _hub_policy_cache, _compiled_policy_version = _compile_policies()
             _get_guardrails_safety_guard.cache_clear()
+
+        # Build the guard now (rather than lazily on the next request) so validator
+        # health is known here, and a policy whose validator package no longer exists
+        # is disabled instead of sitting in the registry advertising itself as active.
+        _get_guardrails_safety_guard()
+        auto_disabled = _auto_disable_broken_policies()
+        if auto_disabled:
+            with _cache_lock:
+                _compiled_policy_cache, _hub_policy_cache, _compiled_policy_version = _compile_policies()
+                _get_guardrails_safety_guard.cache_clear()
+            _get_guardrails_safety_guard()
+
     return {
         'loaded_policies': len(_compiled_policy_cache),
         'loaded_hub_validators': len(_hub_policy_cache),
-        'policy_version': _compiled_policy_version
+        'policy_version': _compiled_policy_version,
+        'auto_disabled_policies': auto_disabled,
+        'validator_health': get_validator_health(),
     }
+
+
+def _auto_disable_broken_policies():
+    """Disable policies whose validator package cannot be imported at all.
+
+    Only permanent failures qualify - a validator that was uninstalled or removed
+    upstream. Config and transient errors are left enabled so they can be fixed or
+    recover on their own. Every auto-disable is written to the policy audit trail.
+    """
+    disabled = []
+    for item in get_validator_health():
+        if not item.get('permanent') or not item.get('policy_id'):
+            continue
+        reason = (
+            f"Validator {item.get('validator_class')} ({item.get('hub_uri')}) could not be "
+            f"loaded: {item.get('error')}. The policy was disabled automatically because it "
+            'cannot enforce anything in this state.'
+        )
+        if disable_policy_for_runtime_error(item['policy_id'], reason, item.get('validator_class') or ''):
+            disabled.append({
+                'policy_id': item['policy_id'],
+                'policy_name': item.get('policy_name'),
+                'validator_class': item.get('validator_class'),
+                'reason': reason,
+            })
+    return disabled
 
 
 def _loaded_policies():
@@ -230,14 +300,33 @@ def _get_guardrails_safety_guard():
         guard.configure(allow_metrics_collection=False)
         configured_guard = guard.use(ResponsibleAISafetyPolicy(on_fail=OnFailAction.NOOP))
         setup_errors = []
+        health = []
         for item in _hub_policy_cache:
+            policy = item.get('policy') or {}
             try:
                 validator_class = _load_hub_validator_class(item)
                 runtime_params = dict(item.get('runtime_params') or {})
                 runtime_params['on_fail'] = OnFailAction.NOOP
-                configured_guard = configured_guard.use(validator_class, **runtime_params)
+                # The guardrails_ai.* validator packages don't honor the legacy
+                # settings.rc.use_remote_inferencing flag set above, and Guardrails'
+                # hosted inference API is gone, so inference has to run locally.
+                # A policy can still override this via its own runtime_params.
+                runtime_params.setdefault('use_local', True)
+                # Guard.use() takes validator *instances*, not a class plus
+                # constructor kwargs - same pattern as ResponsibleAISafetyPolicy above.
+                configured_guard = configured_guard.use(validator_class(**runtime_params))
             except Exception as exc:
                 setup_errors.append(f"{item.get('validator_class')}: {exc}")
+                health.append({
+                    'policy_id': policy.get('id'),
+                    'policy_name': policy.get('name'),
+                    'validator_class': item.get('validator_class'),
+                    'hub_uri': item.get('hub_uri'),
+                    'error': f'{type(exc).__name__}: {exc}',
+                    'permanent': isinstance(exc, _PERMANENT_ERROR_TYPES),
+                })
+        with _cache_lock:
+            _validator_health[:] = health
         return configured_guard, '; '.join(setup_errors) or None
     except Exception as exc:
         return None, str(exc)
@@ -254,7 +343,10 @@ def evaluate_safety(message, stage='input'):
     validation_summaries = []
     engine = 'guardrails_ai'
 
-    if guard:
+    # Guard.validate() reports failure for an empty string, which would surface a
+    # model that produced no text (e.g. reasoning consumed max_tokens) as a safety
+    # block with no violation behind it. Nothing to validate means nothing to block.
+    if guard and message.strip():
         try:
             with tracer.start_as_current_span('guardrails_validate'):
                 outcome = guard.validate(message, metadata={'stage': stage})
@@ -271,7 +363,7 @@ def evaluate_safety(message, stage='input'):
         except Exception as exc:
             setup_error = str(exc)
             engine = 'guardrails_ai_with_regex_fallback'
-    else:
+    elif not guard:
         engine = 'regex_fallback'
 
     blocked = not validation_passed or risk == 'high'

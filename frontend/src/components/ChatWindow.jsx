@@ -16,12 +16,13 @@ export default function ChatWindow({ messages, onSend, loading }) {
       <div className="message-list">
         {messages.length === 0 && <div className="empty-state">Ask a responsible AI question to begin.</div>}
         {messages.map((message, index) => (
-          <MessageBubble 
-            key={index} 
-            role={message.role} 
-            text={message.text} 
+          <MessageBubble
+            key={index}
+            role={message.role}
+            text={message.text}
             isError={message.isError}
-            responsibleAI={message.responsibleAI} 
+            responsibleAI={message.responsibleAI}
+            metadata={message.metadata}
           />
         ))}
       </div>

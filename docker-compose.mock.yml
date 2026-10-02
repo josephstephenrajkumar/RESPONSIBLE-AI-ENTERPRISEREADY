@@ -1,0 +1,17 @@
+# Override: point the LiteLLM proxy at the local mock upstream instead of Groq.
+#
+#   backend/venv/bin/python tests/mock_llm_upstream.py --port 4010 &
+#   docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d litellm
+#
+# Use this for offline development, CI, and verifying the FinOps/AIOps
+# dashboards without a provider key or any spend.
+
+services:
+  litellm:
+    environment:
+      MOCK_UPSTREAM_URL: http://host.docker.internal:4010/v1
+      GROQ_API_KEY: unused-in-mock-mode
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./litellm/config.mock.yaml:/app/config.yaml:ro

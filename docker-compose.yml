@@ -1,0 +1,95 @@
+# Local stack for the Responsible AI Enterprise Gateway.
+#
+#   docker compose up -d                 # infra only: Jaeger, Postgres, LiteLLM proxy
+#   docker compose --profile full up -d  # also builds and runs the FastAPI gateway
+#
+# Run the backend natively for day-to-day development (hot reload):
+#   cd backend && ./venv/bin/uvicorn app.main:app --port 8000 --reload
+# It reaches the proxy at http://localhost:4000 (LITELLM_PROXY_URL).
+#
+# Provider keys live only in the LiteLLM container. backend/.env still carries
+# GROQ_API_KEY because compose reads it from there for the proxy; the FastAPI
+# service does not use it when LLM_GATEWAY_MODE=proxy.
+
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+      - "4318:4318"     # OTLP/HTTP (gateway + LiteLLM traces)
+      - "4317:4317"     # OTLP/gRPC
+
+  litellm-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: litellm
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    depends_on:
+      litellm-db:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+    env_file:
+      - backend/.env            # supplies GROQ_API_KEY (and any other provider keys)
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev-master-key}
+      DATABASE_URL: postgresql://litellm:litellm@litellm-db:5432/litellm
+      STORE_MODEL_IN_DB: "True"
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-sk-local-dev-salt-key-do-not-rotate}
+      LITELLM_LOG: INFO
+      # OpenTelemetry export for the `otel` callback in litellm/config.yaml
+      OTEL_EXPORTER: otlp_http
+      OTEL_ENDPOINT: http://jaeger:4318/v1/traces
+      OTEL_SERVICE_NAME: litellm-proxy
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  backend:
+    profiles: ["full"]
+    build: ./backend
+    depends_on:
+      litellm:
+        condition: service_healthy
+    env_file:
+      - backend/.env
+    environment:
+      LLM_GATEWAY_MODE: proxy
+      LITELLM_PROXY_URL: http://litellm:4000
+      LITELLM_API_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev-master-key}
+      LLM_PROVIDERS_ENABLED: groq
+      # Containerised gateway must not hold the provider key.
+      GROQ_API_KEY: ""
+      DATABASE_URL: sqlite:////data/responsible_ai.db
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+      JAEGER_UI_URL: http://localhost:16686
+      FRONTEND_ORIGINS: http://localhost:5173
+    volumes:
+      - backend-data:/data
+    ports:
+      - "8000:8000"
+
+volumes:
+  litellm-db-data:
+  backend-data:

@@ -1,4 +1,34 @@
-export default function MessageBubble({ role, text, responsibleAI, isError = false }) {
+function formatCost(value) {
+  if (value === null || value === undefined) return null
+  if (value === 0) return '$0'
+  return value < 0.01 ? `$${value.toFixed(5)}` : `$${value.toFixed(3)}`
+}
+
+// Per-message metering footer. Transparency pillar: the user can see which
+// model actually answered, what it cost, and whether the proxy had to retry
+// or fall back, straight from the LiteLLM response headers.
+function UsageFooter({ metadata }) {
+  const usage = metadata?.usage
+  if (!usage || metadata?.provider === 'guardrails-policy') return null
+  const cost = formatCost(usage.cost_usd)
+  const parts = [
+    `via ${usage.gateway}`,
+    usage.served_model ? `model ${usage.served_model}` : null,
+    usage.total_tokens ? `${usage.total_tokens} tokens (${usage.prompt_tokens} in / ${usage.completion_tokens} out)` : null,
+    cost ? `${cost} ${usage.cost_source === 'estimated' ? '(est.)' : ''}`.trim() : null,
+    usage.latency_ms ? `${usage.latency_ms} ms` : null,
+    usage.retries ? `${usage.retries} retr${usage.retries === 1 ? 'y' : 'ies'}` : null,
+    usage.fallbacks ? `${usage.fallbacks} fallback${usage.fallbacks === 1 ? '' : 's'}` : null,
+    usage.status !== 'success' ? `status ${usage.status}${usage.error_type ? ` (${usage.error_type})` : ''}` : null,
+  ].filter(Boolean)
+  return (
+    <div className={`usage-footer${usage.status !== 'success' ? ' usage-footer-error' : ''}`} title={`request ${metadata.request_id}`}>
+      {parts.join(' · ')}
+    </div>
+  )
+}
+
+export default function MessageBubble({ role, text, responsibleAI, metadata, isError = false }) {
   const className = `${role === 'assistant' ? 'bubble assistant' : 'bubble user'}${isError ? ' error' : ''}`
   const privacy = responsibleAI?.privacy || {}
   const safety = responsibleAI?.safety || {}
@@ -21,6 +51,7 @@ export default function MessageBubble({ role, text, responsibleAI, isError = fal
     <div className={className}>
       <div className="bubble-role">{role}</div>
       <div>{text}</div>
+      <UsageFooter metadata={metadata} />
       {responsibleAI && (
         <div className="responsible-ai-evaluation">
           <h4>Responsible AI Evaluation:</h4>
@@ -38,13 +69,15 @@ export default function MessageBubble({ role, text, responsibleAI, isError = fal
               </div>
               <div className="evaluation-item">
                 <strong>⚖️ Fairness:</strong> {fairness.fairness_risk ?? fairness.bias_score ?? 'unknown'}
-                {(fairness.protected_attributes_examined || []).length > 0 && 
+                {typeof fairness.fairness_score === 'number' && ` (score: ${fairness.fairness_score}, ${fairness.evaluator_engine})`}
+                {(fairness.protected_attributes_examined || []).length > 0 &&
                   ` (${(fairness.protected_attributes_examined || []).join(', ')})`}
-                {(fairness.biased_language_detected || []).length > 0 && 
+                {(fairness.biased_language_detected || []).length > 0 &&
                   ` - Biased: ${(fairness.biased_language_detected || []).join(', ')}`}
               </div>
               <div className="evaluation-item">
                 <strong>📖 Explainability:</strong> {explainability.explanation_provided !== undefined ? (explainability.explanation_provided ? 'Yes' : 'No') : 'unknown'}
+                {typeof explainability.explainability_score === 'number' && ` (score: ${explainability.explainability_score}, ${explainability.evaluator_engine})`}
               </div>
               <div className="evaluation-item">
                 <strong>✅ Verifiability:</strong> {verifiability.verifiability_score ?? 'unknown'}

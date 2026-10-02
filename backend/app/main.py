@@ -4,19 +4,31 @@ from datetime import datetime
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.auth import (
     AuthenticatedUser,
     auth_runtime_config,
     get_current_user,
+    require_aiops_viewer,
+    require_finops_viewer,
+    require_model_admin,
     require_policy_manager,
+    user_can_manage_models,
     user_can_manage_policies,
+    user_can_view_aiops,
+    user_can_view_finops,
 )
 from app.config import Settings
 from app.database import (
     append_audit_event,
     append_guardrail_violations,
     engine,
+    get_aiops_summary,
+    get_audit_block_stats,
+    get_eval_metrics_summary,
+    get_finops_summary,
+    get_safety_metrics_summary,
     get_guardrail_report,
     get_policy_payload,
     get_recent_audit_events,
@@ -38,8 +50,16 @@ from app.schemas import (
     SafetyPolicyCreate,
     SafetyHubPolicyImport,
     SafetyPolicyUpdate,
+    UsageMetadata,
+    CatalogModelCreate,
+    GatewaySettingUpdate,
+    ProviderCredentialRequest,
 )
-from app.groq_client import groq_client
+from app.llm_client import bind_request_context, llm_client, reset_request_context
+from app import gateway_settings
+from app.litellm_admin import LiteLLMAdminError, litellm_admin
+from app import litellm_bootstrap
+from app.model_catalog import CatalogError, model_catalog
 from app.responsible_ai import (
     evaluate_privacy as code_privacy,
     evaluate_safety as code_safety,
@@ -58,12 +78,19 @@ from app.framework_mode import (
     evaluate_explainability as framework_explainability,
     evaluate_fairness as framework_fairness
 )
-from app.framework_mode.guardrails_safety import reload_safety_policies, test_safety_policy
+from app.framework_mode.guardrails_safety import (
+    get_active_policy_version,
+    get_validator_health,
+    reload_safety_policies,
+    test_safety_policy,
+)
+from app.framework_mode.langfuse_observability import is_langfuse_configured
 from app.policy_governance import (
     activate_policy,
     approve_policy,
     create_policy,
     delete_policy,
+    get_auto_disable_reasons,
     list_policies,
     update_policy,
 )
@@ -87,17 +114,286 @@ def startup_event():
     setup_tracing(app)
     instrument_sqlalchemy(engine)
     init_database()
+    gateway_settings.ensure_table()
     reload_safety_policies()
+    if llm_client.mode == 'proxy':
+        import asyncio
+        asyncio.get_event_loop().create_task(litellm_bootstrap.startup_seed())
 
 
 @app.on_event('shutdown')
 async def shutdown_event():
-    await groq_client.close()
+    await llm_client.close()
+    await model_catalog.close()
+    await litellm_admin.close()
 
 
 @app.get('/health')
 def health():
     return {'status': 'ok', 'service': 'responsible-ai-chat-agent'}
+
+
+@app.get('/gateway/health')
+async def gateway_health(user: AuthenticatedUser = Depends(get_current_user)):
+    """Live check of the LLM egress path (LiteLLM proxy reachability and models)."""
+    return await llm_client.health()
+
+
+@app.get('/gateway/models')
+async def gateway_models(user: AuthenticatedUser = Depends(get_current_user)):
+    """Models the chat screen may select, grouped by provider (LiteLLM /model/info)."""
+    try:
+        models = await llm_client.list_models()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f'LLM gateway is not reachable: {exc}') from exc
+    allowed = gateway_settings.effective_allowed_models()
+    if allowed:
+        models = [model for model in models if model in allowed]
+    grouped = {'by_provider': {}, 'details': []}
+    if llm_client.mode == 'proxy':
+        try:
+            grouped = await model_catalog.grouped_models(allowed or None)
+            models = [d['id'] for d in grouped['details']] or models
+        except Exception:
+            grouped = {'by_provider': {'unknown': models}, 'details': [{'id': m, 'provider': 'unknown'} for m in models]}
+    return {
+        'default_model': gateway_settings.effective_default_model(),
+        'judge_model': gateway_settings.effective_judge_model(),
+        'models': models,
+        'by_provider': grouped['by_provider'],
+        'details': grouped['details'],
+        'gateway_mode': llm_client.mode,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Admin model catalogue (providers + models served by the LiteLLM proxy)
+# ---------------------------------------------------------------------------
+def _catalog_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, CatalogError):
+        return HTTPException(status_code=exc.status_code, detail=exc.detail)
+    if isinstance(exc, httpx.HTTPError):
+        return HTTPException(status_code=503, detail=f'LiteLLM proxy request failed: {exc}')
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get('/gateway/catalog')
+async def gateway_catalog(user: AuthenticatedUser = Depends(require_policy_manager)):
+    try:
+        return await model_catalog.catalog()
+    except Exception as exc:
+        raise _catalog_http_error(exc) from exc
+
+
+@app.get('/gateway/catalog/providers/{provider}/available')
+async def gateway_catalog_available(provider: str, q: str = '', user: AuthenticatedUser = Depends(require_policy_manager)):
+    try:
+        return await model_catalog.available_models(provider, q)
+    except Exception as exc:
+        raise _catalog_http_error(exc) from exc
+
+
+@app.post('/gateway/catalog/models', status_code=201)
+async def gateway_catalog_add(request: CatalogModelCreate, user: AuthenticatedUser = Depends(require_model_admin)):
+    actor = user.email or user.username or user.user_id
+    try:
+        return await model_catalog.add_model(request.provider, request.model, request.model_name, actor, request.description)
+    except Exception as exc:
+        raise _catalog_http_error(exc) from exc
+
+
+@app.delete('/gateway/catalog/models/{model_id}')
+async def gateway_catalog_delete(model_id: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    actor = user.email or user.username or user.user_id
+    try:
+        return await model_catalog.delete_model(model_id, actor)
+    except Exception as exc:
+        raise _catalog_http_error(exc) from exc
+
+
+@app.post('/gateway/catalog/models/{model_name:path}/test')
+async def gateway_catalog_test(model_name: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    """Send one tiny, metered completion through the proxy to prove the model works end to end."""
+    context_token = bind_request_context(
+        request_id=str(uuid.uuid4()), user_id=user.user_id, user_email=user.email, tenant_id=user.tenant_id,
+        client_id='admin-catalog', agent_id='model-test', mode='test',
+    )
+    try:
+        result = await llm_client.complete(
+            [{'role': 'user', 'content': 'Reply with the single word OK.'}],
+            model=model_name, temperature=0.0, max_tokens=64, purpose='catalog_test',
+        )
+    finally:
+        reset_request_context(context_token)
+    return {
+        'model': model_name,
+        'status': result.get('status'),
+        'served_model': result.get('served_model'),
+        'answer': (result.get('answer') or '')[:200],
+        'finish_reason': result.get('finish_reason'),
+        'latency_ms': result.get('latency_ms'),
+        'cost_usd': result.get('cost_usd'),
+        'cost_source': result.get('cost_source'),
+        'total_tokens': result.get('tokens'),
+        'error_type': result.get('error_type'),
+        'http_status': result.get('http_status'),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Proxy Manager: providers, settings and governed access to LiteLLM management
+# ---------------------------------------------------------------------------
+def _actor(user: AuthenticatedUser) -> str:
+    return user.email or user.username or user.user_id
+
+
+def _admin_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, LiteLLMAdminError):
+        detail = exc.detail if isinstance(exc.detail, (str, dict, list)) else str(exc.detail)
+        return HTTPException(status_code=exc.status_code if 400 <= exc.status_code < 600 else 502, detail=detail)
+    if isinstance(exc, (CatalogError,)):
+        return HTTPException(status_code=exc.status_code, detail=exc.detail)
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, httpx.HTTPError):
+        return HTTPException(status_code=503, detail=f'LiteLLM proxy request failed: {exc}')
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get('/gateway/admin/overview')
+async def gateway_admin_overview(user: AuthenticatedUser = Depends(require_policy_manager)):
+    try:
+        overview = await litellm_admin.overview()
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+    overview['settings'] = gateway_settings.effective_view()
+    overview['providers'] = model_catalog.providers(None, await model_catalog.litellm_credentials())
+    return overview
+
+
+@app.get('/gateway/admin/litellm-config')
+async def gateway_admin_litellm_config(user: AuthenticatedUser = Depends(require_policy_manager)):
+    """Merged view of the proxy's DB-managed runtime settings for the Routing & Settings screen."""
+    try:
+        return await litellm_bootstrap.current_config()
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+
+
+@app.post('/gateway/admin/litellm-keys/{token}/rotate')
+async def gateway_admin_litellm_key_rotate(token: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    """Rotate a LiteLLM virtual key (new key with the same scope; old key deleted). Shown once."""
+    try:
+        return await litellm_admin.rotate_key(token, _actor(user))
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+
+
+@app.post('/gateway/admin/litellm-config/seed')
+async def gateway_admin_litellm_config_seed(force: bool = False, user: AuthenticatedUser = Depends(require_model_admin)):
+    """Re-apply the shipped runtime defaults (force=true overwrites current values)."""
+    try:
+        return await litellm_bootstrap.ensure_runtime_defaults(_actor(user), force=force)
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+
+
+@app.get('/gateway/settings')
+async def gateway_settings_get(user: AuthenticatedUser = Depends(require_policy_manager)):
+    return gateway_settings.effective_view()
+
+
+@app.put('/gateway/settings')
+async def gateway_settings_put(request: GatewaySettingUpdate, user: AuthenticatedUser = Depends(require_model_admin)):
+    if request.key in ('chat.default_model', 'chat.judge_model') and request.value:
+        known = {row['model_name'] for row in await model_catalog.deployments()}
+        if request.value not in known:
+            raise HTTPException(status_code=400, detail=f'{request.value!r} is not a model served by the proxy')
+    try:
+        return gateway_settings.set_value(request.key, request.value, _actor(user))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post('/gateway/catalog/providers/{provider}/credential', status_code=201)
+async def gateway_provider_credential_add(provider: str, request: ProviderCredentialRequest,
+                                          user: AuthenticatedUser = Depends(require_model_admin)):
+    """Store a provider API key in LiteLLM's encrypted credential store (never in this service)."""
+    from app.model_catalog import PROVIDERS
+    spec = PROVIDERS.get(provider)
+    if not spec:
+        raise HTTPException(status_code=404, detail=f'Unknown provider {provider!r}')
+    if spec['credential']['type'] != 'api_key':
+        raise HTTPException(status_code=409, detail=f"{spec['display_name']} uses IAM; no API key is needed")
+    try:
+        result = await litellm_admin.store_provider_credential(provider, request.api_key, _actor(user), request.extra or None)
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+    # A freshly credentialed provider should be usable immediately.
+    disabled = [item for item in gateway_settings.disabled_providers() if item != provider]
+    if len(disabled) != len(gateway_settings.disabled_providers()):
+        gateway_settings.set_value('providers.disabled', disabled, _actor(user))
+    return {'provider': provider, 'credential_name': litellm_admin.credential_name(provider), 'litellm_response': result}
+
+
+@app.delete('/gateway/catalog/providers/{provider}/credential')
+async def gateway_provider_credential_delete(provider: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    try:
+        result = await litellm_admin.delete_provider_credential(provider, _actor(user))
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+    return {'provider': provider, 'deleted': litellm_admin.credential_name(provider), 'litellm_response': result}
+
+
+@app.post('/gateway/catalog/providers/{provider}/{action}')
+async def gateway_provider_toggle(provider: str, action: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    from app.model_catalog import PROVIDERS
+    if provider not in PROVIDERS or action not in ('enable', 'disable'):
+        raise HTTPException(status_code=404, detail='Unknown provider or action')
+    disabled = set(gateway_settings.disabled_providers())
+    (disabled.discard if action == 'enable' else disabled.add)(provider)
+    gateway_settings.set_value('providers.disabled', sorted(disabled), _actor(user))
+    rows = model_catalog.providers(None, await model_catalog.litellm_credentials())
+    return next(row for row in rows if row['id'] == provider)
+
+
+@app.post('/gateway/catalog/models/{model_name:path}/{action}')
+async def gateway_model_toggle(model_name: str, action: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    if action not in ('enable', 'disable'):
+        raise HTTPException(status_code=404, detail='Unknown action')
+    disabled = set(gateway_settings.disabled_models())
+    (disabled.discard if action == 'enable' else disabled.add)(model_name)
+    gateway_settings.set_value('models.disabled', sorted(disabled), _actor(user))
+    return {'model': model_name, 'disabled': model_name in disabled}
+
+
+@app.api_route('/gateway/admin/litellm/{path:path}', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+async def gateway_admin_litellm(path: str, request: Request, user: AuthenticatedUser = Depends(get_current_user)):
+    """Allow-listed passthrough to LiteLLM's management API with the proxy admin key.
+
+    Reads need the policy-manager role (browse); writes need admin / model-admin.
+    Every write is recorded in the policy audit trail with secrets redacted.
+    """
+    if request.method == 'GET':
+        if not user_can_manage_policies(user) and not user_can_manage_models(user):
+            raise HTTPException(status_code=403, detail='Policy manager permission is required')
+    elif not user_can_manage_models(user):
+        raise HTTPException(status_code=403, detail='Model administration permission is required')
+    body = None
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        raw = await request.body()
+        if raw:
+            try:
+                body = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail='Request body must be JSON') from exc
+    try:
+        status_code, payload = await litellm_admin.request(
+            request.method, path, params=dict(request.query_params), body=body, actor=_actor(user)
+        )
+    except LiteLLMAdminError as exc:
+        raise _admin_http_error(exc) from exc
+    return Response(content=json.dumps(payload, default=str), status_code=status_code, media_type='application/json')
 
 
 @app.get('/')
@@ -203,12 +499,42 @@ def _extract_violation_records(request, user, metadata, safety_result):
 
 @app.post('/chat', response_model=ChatResponse)
 async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_current_user)):
+    requested_model = llm_client.resolve_model(request.model, 'chat')
+    if llm_client.mode == 'proxy':
+        rejection = await model_catalog.chat_model_rejection(requested_model)
+        if rejection:
+            raise HTTPException(status_code=409 if 'disabled' in rejection else 400, detail=rejection)
+    elif not llm_client.model_allowed(requested_model):
+        raise HTTPException(status_code=400, detail=f'Model {requested_model!r} is not in the gateway allowlist')
+    request.model = requested_model
+
+    # Bind caller identity once so every model call in this request (answer +
+    # judge calls) is metered against the same user/tenant/request.
+    gateway_request_id = str(uuid.uuid4())
+    context_token = bind_request_context(
+        request_id=gateway_request_id,
+        user_id=user.user_id,
+        user_email=user.email,
+        tenant_id=user.tenant_id,
+        client_id=request.client_id,
+        agent_id=request.agent_id,
+        session_id=request.session_id,
+        mode=request.mode.value,
+    )
+    try:
+        return await _chat(request, user, gateway_request_id)
+    finally:
+        reset_request_context(context_token)
+
+
+async def _chat(request: ChatRequest, user: AuthenticatedUser, gateway_request_id: str) -> ChatResponse:
     with tracer.start_as_current_span('chat.request') as span:
         upsert_user_profile(user)
         span.set_attribute('chat.mode', request.mode.value)
         span.set_attribute('chat.model', request.model)
         span.set_attribute('chat.temperature', request.temperature)
         span.set_attribute('chat.max_tokens', request.max_tokens)
+        span.set_attribute('chat.request_id', gateway_request_id)
         span.set_attribute('enduser.id', user.user_id)
         span.set_attribute('tenant.id', user.tenant_id)
         span.set_attribute('client.id', request.client_id)
@@ -240,28 +566,59 @@ async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_curre
                     ),
                     'provider': 'guardrails-policy',
                     'model': request.model,
-                    'request_id': str(uuid.uuid4()),
+                    'request_id': gateway_request_id,
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'tokens': 0,
+                    'status': 'blocked',
                     'metadata': {'blocked_by': 'guardrails_ai_safety_policy'}
                 }
 
         if response is None:
-            with tracer.start_as_current_span('groq_api_call') as groq_span:
-                response = await groq_client.send_prompt(
+            with tracer.start_as_current_span('llm_gateway_call') as llm_span:
+                response = await llm_client.chat(
                     llm_message,
+                    model=request.model,
                     temperature=request.temperature,
                     max_tokens=request.max_tokens,
-                    explain=request.explain,
-                    verify=request.verify,
-                    mode=request.mode.value
+                    observe=request.mode == 'framework',
                 )
-                groq_span.set_attribute('llm.provider', response.get('provider', 'unknown'))
-                groq_span.set_attribute('llm.model', response.get('model', request.model))
-                groq_span.set_attribute('llm.request_id', response.get('request_id', ''))
+                # Keep one request id across the audit event, the usage rows and
+                # the client-visible metadata.
+                response['request_id'] = gateway_request_id
+                llm_span.set_attribute('llm.gateway_mode', llm_client.mode)
+                llm_span.set_attribute('llm.provider', response.get('provider', 'unknown'))
+                llm_span.set_attribute('llm.model', response.get('served_model') or request.model)
+                llm_span.set_attribute('llm.status', response.get('status', 'unknown'))
+                llm_span.set_attribute('llm.total_tokens', response.get('tokens', 0))
+                llm_span.set_attribute('llm.cost_usd', response.get('cost_usd') or 0.0)
+                llm_span.set_attribute('llm.latency_ms', response.get('latency_ms', 0))
+                llm_span.set_attribute('llm.call_id', response.get('call_id', ''))
         answer = response.get('answer', '')
+        if response.get('status') == 'success' and not (answer or '').strip():
+            # Reasoning models can spend the whole token budget before emitting
+            # text. Say so instead of returning an empty answer (which the output
+            # checks would otherwise have nothing to evaluate).
+            answer = (
+                f"The model returned no text (finish_reason={response.get('finish_reason') or 'unknown'}, "
+                f"max_tokens={request.max_tokens}). The token budget was used before an answer was produced; "
+                'increase max_tokens and try again.'
+            )
+            response['empty_answer'] = True
 
-        if request.mode == 'framework':
+        if request.mode == 'framework' and response.get('status') not in (None, 'success', 'blocked'):
+            # The model call failed: the "answer" is a gateway error message. Running
+            # privacy redaction, safety validation and two judge LLM calls on it would
+            # cost money and produce meaningless scores, so record the skip instead.
+            skipped = {'evaluator_engine': 'skipped_llm_error', 'recommendation': 'Model call failed; evaluation skipped'}
+            privacy_result.update({'output_findings_count': 0, 'output_redacted': False, 'output_skipped': 'llm_error'})
+            safety_result.update({'output_blocked': False, 'output_violations': [], 'output_policy_violations': [], 'output_skipped': 'llm_error'})
+            fairness_result = {'fairness_risk': 'unknown', 'fairness_score': None, **skipped}
+            explainability_result = {'explanation_provided': False, 'explainability_score': None, **skipped}
+            verifiability_result = {'verifiability_score': None, **skipped}
+            transparency_result = {'transparency_level': 'partial', **skipped}
+            governance_result = {'governance_concern': 'medium', **skipped}
+            controllability_result = {'controllability_properties': ['mode', 'temperature', 'max_tokens'], **skipped}
+        elif request.mode == 'framework':
             with tracer.start_as_current_span('privacy_output_check') as output_privacy_span:
                 output_privacy_result = framework_privacy(answer)
                 if output_privacy_result.get('redacted'):
@@ -292,9 +649,9 @@ async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_curre
                 safety_output_span.set_attribute('safety.output_blocked', output_safety_result.get('blocked', False))
                 safety_output_span.set_attribute('safety.output_risk', output_safety_result.get('safety_risk', 'unknown'))
             with tracer.start_as_current_span('fairness_check'):
-                fairness_result = framework_fairness(answer)
+                fairness_result = await framework_fairness(answer)
             with tracer.start_as_current_span('explainability_check'):
-                explainability_result = framework_explainability(answer)
+                explainability_result = await framework_explainability(answer)
             with tracer.start_as_current_span('verifiability_check'):
                 verifiability_result = {
                     'verifiability_score': 0.8,
@@ -368,9 +725,9 @@ async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_curre
         with tracer.start_as_current_span('response_metadata'):
             metadata = MetadataResponse(
                 model=request.model,
-                provider=response.get('provider', 'groq'),
+                provider=response.get('provider', llm_client.provider_label),
                 mode=request.mode,
-                request_id=response.get('request_id', ''),
+                request_id=response.get('request_id', gateway_request_id),
                 timestamp=(
                     datetime.fromisoformat(response.get('timestamp').replace('Z', '+00:00'))
                     if response.get('timestamp')
@@ -380,6 +737,22 @@ async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_curre
                 client_id=request.client_id,
                 agent_id=request.agent_id,
                 session_id=request.session_id,
+                usage=UsageMetadata(
+                    gateway=llm_client.provider_label,
+                    served_model=response.get('served_model', ''),
+                    prompt_tokens=response.get('prompt_tokens', 0),
+                    completion_tokens=response.get('completion_tokens', 0),
+                    total_tokens=response.get('tokens', 0),
+                    cost_usd=response.get('cost_usd'),
+                    cost_source=response.get('cost_source', 'none'),
+                    latency_ms=response.get('latency_ms', 0),
+                    proxy_overhead_ms=response.get('proxy_overhead_ms'),
+                    retries=response.get('retries', 0),
+                    fallbacks=response.get('fallbacks', 0),
+                    status=response.get('status', 'success'),
+                    error_type=response.get('error_type', ''),
+                    finish_reason=response.get('finish_reason', ''),
+                ),
             )
 
         risk_level = _risk_level(privacy_result, safety_result)
@@ -433,9 +806,75 @@ def guardrail_reports(user_id: str | None = None, user: AuthenticatedUser = Depe
     return get_guardrail_report(target_user_id)
 
 
+@app.get('/reports/evaluations')
+def evaluation_reports(limit: int = 200, user: AuthenticatedUser = Depends(require_policy_manager)):
+    return get_eval_metrics_summary(limit)
+
+
+@app.get('/reports/safety')
+def safety_reports(limit: int = 200, user: AuthenticatedUser = Depends(require_policy_manager)):
+    return {
+        **get_safety_metrics_summary(limit),
+        'validator_health': get_validator_health(),
+        'active_policy_version': get_active_policy_version(),
+    }
+
+
+@app.get('/reports/finops')
+def finops_report(days: int = 30, user: AuthenticatedUser = Depends(require_finops_viewer)):
+    """Spend, tokens, unit economics and budget posture for the FinOps dashboard."""
+    summary = get_finops_summary(days, monthly_budget_usd=Settings.FINOPS_MONTHLY_BUDGET_USD)
+    summary['currency'] = Settings.FINOPS_CURRENCY
+    summary['gateway'] = {
+        'mode': llm_client.mode,
+        'default_model': gateway_settings.effective_default_model(),
+        'judge_model': gateway_settings.effective_judge_model(),
+        'cost_system_of_record': 'litellm' if llm_client.mode == 'proxy' else 'estimated',
+    }
+    return summary
+
+
+@app.get('/reports/aiops')
+async def aiops_report(hours: int = 24, user: AuthenticatedUser = Depends(require_aiops_viewer)):
+    """Reliability, latency and dependency health for the AIOps dashboard."""
+    summary = get_aiops_summary(hours)
+    summary['guardrails'] = get_audit_block_stats(hours)
+    summary['dependencies'] = {
+        'llm_gateway': await llm_client.health(),
+        'tracing': get_tracing_status(),
+        'langfuse': {'configured': is_langfuse_configured()},
+        'database': _database_health(),
+        'safety_validators': {
+            'failing': len(get_validator_health()),
+            'active_policy_version': get_active_policy_version(),
+            'details': get_validator_health(),
+        },
+    }
+    return summary
+
+
+def _database_health() -> dict:
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('SELECT 1'))
+        return {'status': 'ok', 'dialect': engine.dialect.name}
+    except Exception as exc:
+        return {'status': 'error', 'dialect': engine.dialect.name, 'error': str(exc)}
+
+
 @app.get('/policy', response_model=PolicyResponse)
 def policy():
-    return PolicyResponse(policy=get_policy_payload())
+    # The stored policy document is seeded once; the model and provider shown
+    # to clients must follow the live gateway configuration, so overlay them.
+    payload = get_policy_payload()
+    payload['model'] = gateway_settings.effective_default_model()
+    payload['provider'] = llm_client.provider_label
+    payload['llm_gateway'] = {
+        'mode': llm_client.mode,
+        'judge_model': gateway_settings.effective_judge_model(),
+        'allowed_models': gateway_settings.effective_allowed_models(),
+    }
+    return PolicyResponse(policy=payload)
 
 
 @app.get('/auth/config')
@@ -455,13 +894,47 @@ def auth_me(user: AuthenticatedUser = Depends(get_current_user)):
             'manage_policies': user_can_manage_policies(user),
             'install_hub_validators': user_can_manage_policies(user),
             'activate_policies': user_can_manage_policies(user),
+            'view_finops': user_can_view_finops(user),
+            'view_aiops': user_can_view_aiops(user),
+            'manage_models': user_can_manage_models(user),
         },
     }
 
 
 @app.get('/policies')
 def policies(user: AuthenticatedUser = Depends(require_policy_manager)):
-    return {'policies': list_policies()}
+    # Live validator errors cover policies that are still enabled but failing to load.
+    # Once a policy has been auto-disabled it is no longer compiled, so the audit trail
+    # is what keeps its explanation available.
+    health_by_policy = {
+        item['policy_id']: item
+        for item in get_validator_health()
+        if item.get('policy_id')
+    }
+    auto_disabled = get_auto_disable_reasons()
+
+    def _health_for(policy):
+        live = health_by_policy.get(policy['id'])
+        if live:
+            return live
+        record = auto_disabled.get(policy['id'])
+        if record and not policy['enabled']:
+            return {
+                'policy_id': policy['id'],
+                'policy_name': policy['name'],
+                'validator_class': record.get('validator_class'),
+                'error': record['reason'],
+                'permanent': True,
+                'auto_disabled_at': record['disabled_at'],
+            }
+        return None
+
+    return {
+        'policies': [
+            {**policy, 'runtime_health': _health_for(policy)}
+            for policy in list_policies()
+        ]
+    }
 
 
 @app.post('/policies')

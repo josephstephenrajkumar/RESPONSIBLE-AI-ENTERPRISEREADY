@@ -15,8 +15,9 @@ This project supports two implementation modes:
 | SQLAlchemy | Implemented with SQLite default and portable `DATABASE_URL` | Policy and audit persistence replacing JSON/JSONL runtime storage | Governance, Auditability |
 | Presidio | Implemented in framework mode with regex fallback | PII detection and redaction before LLM calls and after LLM responses | Privacy |
 | Guardrails AI | Implemented in framework mode with a local custom validator | Input/output safety validation, phishing/fraud/AML/cyber/harm policy blocking | Safety, Controllability |
-| TruLens | Lightweight placeholder | LLM answer/explanation evaluation hook | Explainability, Verifiability |
-| Ragas | Lightweight placeholder | RAG/fairness-style evaluation hook | Verifiability, Fairness |
+| TruLens | Implemented: `LLMProvider` feedback scored by the judge model through the LiteLLM proxy | Explanation-quality score per framework-mode answer | Explainability, Verifiability |
+| Ragas | Implemented: `AspectCritic` fairness judgement through the LiteLLM proxy | Fairness/bias score per framework-mode answer | Verifiability, Fairness |
+| LiteLLM proxy | Implemented: single egress for every model call (`app/llm_client.py`) | Provider credentials, routing, retries, fallbacks, budgets, metered cost | Governance, FinOps, Reliability |
 
 ## Implemented Backend Shape
 
@@ -62,9 +63,9 @@ external guidance or Guardrails Hub validators
 
 ## Production Upgrade Path
 
-1. Replace SQLite with Postgres by setting `DATABASE_URL=postgresql+psycopg://...`.
+1. Replace SQLite with Postgres by setting `DATABASE_URL=postgresql+psycopg2://...` (done in AWS dev).
 2. Add Alembic migrations once the schema needs versioned production changes.
 3. Run Jaeger or an OTLP collector outside the app container.
 4. Move Guardrails AI safety rules into versioned policy metadata or database tables.
-5. Add authentication and role-based access before exposing `/audit` in shared environments.
-6. Replace remaining TruLens and Ragas placeholders with real framework calls when those pillars are expanded.
+5. Role-based access exists (Cognito groups); still authenticate `/audit`, `/policy` and `/policies/test` (TD-08).
+6. Move the Ragas/TruLens judges off the request path into a sampled evaluation pipeline (roadmap Sprint 3).

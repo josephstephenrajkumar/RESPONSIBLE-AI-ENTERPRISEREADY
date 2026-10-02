@@ -1,7 +1,7 @@
 locals {
   project_name    = "responsible-ai"
   environment     = "dev"
-  aws_account_id  = "311464491957"
+  aws_account_id  = "767141477889"
   aws_region      = "ap-southeast-1"
   resource_prefix = "${local.project_name}-${local.environment}"
   state_bucket    = "${local.project_name}-terraform-state-${local.environment}-${local.aws_account_id}"

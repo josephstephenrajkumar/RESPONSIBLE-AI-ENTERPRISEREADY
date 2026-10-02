@@ -1,105 +1,59 @@
 # Quick Start Guide
 
-## 5-Minute Setup
+The authoritative step-by-step flow is [AWS_DEV_DEPLOYMENT_RUNBOOK.md](./AWS_DEV_DEPLOYMENT_RUNBOOK.md). This page is the
+short version. The current dev environment (URLs, ids) is in
+[aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md](./aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md).
+
+## Local (5 minutes)
 
 ```bash
-# 1. Clone and navigate
 git clone https://github.com/josephstephenrajkumar/RESPONSIBLE-AI-ENTERPRISEREADY.git
 cd RESPONSIBLE-AI-ENTERPRISEREADY
-
-# 2. Configure AWS
-aws configure
-
-# 3. Verify access
-aws sts get-caller-identity
+cp backend/.env.example backend/.env           # set GROQ_API_KEY (used by the LiteLLM container)
+docker compose up -d                           # Jaeger, Postgres, LiteLLM proxy
+(cd backend && pip install -r requirements.txt && uvicorn app.main:app --port 8000 --reload) &
+(cd frontend && npm install && npm run dev)
 ```
 
-## Deploy Infrastructure (20 minutes)
+Open http://localhost:5173. Zero-spend alternative: `tests/mock_llm_upstream.py` + `docker-compose.mock.yml` (root README).
+
+## AWS dev (about 45 minutes, mostly waiting on Aurora, CloudFront and image push)
 
 ```bash
-chmod +x deploy.sh
+export AWS_PROFILE=<profile-for-767141477889> AWS_REGION=ap-southeast-1
+aws sts get-caller-identity --query Account --output text      # must print 767141477889
 
-# Initialize backends
-./deploy.sh init
+# once per account
+(cd infra/live/dev/network && terragrunt --non-interactive backend bootstrap)
 
-# Plan changes
-./deploy.sh plan
+# plan -> review -> apply, in order
+for m in network secrets cognito aurora-postgres ecr; do
+  (cd infra/live/dev/$m && terragrunt --non-interactive plan -out=/tmp/$m.tfplan && terragrunt --non-interactive apply /tmp/$m.tfplan)
+done
+# store the Groq key and the gateway's LiteLLM key (runbook §7.2), create an admin user (§7.3)
 
-# Apply infrastructure
-./deploy.sh apply
+# image
+SHA=$(git rev-parse --short HEAD); ECR_URL=$(cd infra/live/dev/ecr && terragrunt output -raw repository_url)
+docker build --platform linux/amd64 -t "responsible-ai-gateway:${SHA}" ./backend
+aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR_URL%%/*}"
+docker tag "responsible-ai-gateway:${SHA}" "${ECR_URL}:${SHA}" && docker push "${ECR_URL}:${SHA}"
+sed -i '' "s/image_tag *= *\"[^\"]*\"/image_tag          = \"${SHA}\"/" infra/live/dev/ecs-ai-gateway/terragrunt.hcl
+
+for m in ecs-litellm-proxy ecs-ai-gateway api-gateway frontend-s3-cloudfront observability; do
+  (cd infra/live/dev/$m && terragrunt --non-interactive plan -out=/tmp/$m.tfplan && terragrunt --non-interactive apply /tmp/$m.tfplan)
+done
+# build/upload the frontend and run the CloudFront second pass (runbook §12–13)
 ```
 
-## Deploy Services (10 minutes)
-
-### Backend
+## Verify
 
 ```bash
-cd backend
-docker build -t responsible-ai-gateway:latest .
-
-ECR_URL=$(aws ecr describe-repositories \
-  --repository-names responsible-ai-gateway \
-  --query 'repositories[0].repositoryUri' \
-  --output text)
-
-aws ecr get-login-password --region ap-southeast-1 | \
-  docker login --username AWS --password-stdin $(echo $ECR_URL | cut -d/ -f1)
-
-docker tag responsible-ai-gateway:latest ${ECR_URL}:latest
-docker push ${ECR_URL}:latest
-
-aws ecs update-service --cluster responsible-ai-dev \
-  --service responsible-ai-gateway --force-new-deployment
-
-cd ..
-```
-
-### Frontend
-
-```bash
-cd frontend
-npm install
-npm run build
-
-S3_BUCKET=$(aws s3 ls \
-  --query "Buckets[?contains(Name, 'responsible-ai-frontend-dev')].Name" \
-  --output text)
-
-aws s3 sync dist/ s3://${S3_BUCKET}/ --delete
-
-DIST_ID=$(aws cloudfront list-distributions \
-  --query "DistributionList.Items[0].Id" \
-  --output text)
-
-aws cloudfront create-invalidation --distribution-id ${DIST_ID} --paths "/*"
-
-cd ..
-```
-
-## Access Your Deployment
-
-```bash
-# Backend health check
-API_ENDPOINT=$(aws apigatewayv2 get-apis \
-  --query "Items[?Name=='responsible-ai-api'].ApiEndpoint" \
-  --output text)
-curl ${API_ENDPOINT}/health
-
-# Frontend URL
-CF_DOMAIN=$(aws cloudfront get-distribution \
-  --id ${DIST_ID} \
-  --query 'Distribution.DomainName' \
-  --output text)
-echo "https://${CF_DOMAIN}"
+API=$(cd infra/live/dev/api-gateway && terragrunt output -raw api_endpoint)
+curl -s "$API/health"
+# with a Cognito id token (runbook §15):
+curl -s -H "Authorization: Bearer $TOKEN" "$API/gateway/health"    # expect application_holds_provider_key: false
 ```
 
 ## Cleanup
 
-```bash
-./deploy.sh destroy --auto-approve
-```
-
-See detailed guides:
-- [INFRASTRUCTURE_DEPLOYMENT.md](./INFRASTRUCTURE_DEPLOYMENT.md)
-- [SERVICE_DEPLOYMENT.md](./SERVICE_DEPLOYMENT.md)
-- [ARCHITECTURE_BLUEPRINT.md](./ARCHITECTURE_BLUEPRINT.md)
+Runbook §17 (reverse order; `ecs-litellm-proxy` is destroyed after `ecs-ai-gateway`).

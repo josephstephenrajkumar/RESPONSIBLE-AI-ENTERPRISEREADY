@@ -6,6 +6,9 @@ export default function GovernanceDashboard({ policies, reloadInfo, onReload }) 
     return acc
   }, { total: 0, enabled: 0 })
 
+  const unhealthy = policies.filter(policy => policy.runtime_health)
+  const autoDisabled = unhealthy.filter(policy => policy.runtime_health.permanent)
+
   return (
     <section className="panel governance-dashboard">
       <div className="panel-title-row">
@@ -18,6 +21,26 @@ export default function GovernanceDashboard({ policies, reloadInfo, onReload }) 
         <div><span>Approved</span><strong>{summary.approved || 0}</strong></div>
         <div><span>Active</span><strong>{summary.active || 0}</strong></div>
       </div>
+      {unhealthy.length > 0 && (
+        <div className="policy-health-banner">
+          <strong>
+            {unhealthy.length} {unhealthy.length === 1 ? 'policy is' : 'policies are'} not enforcing
+            {autoDisabled.length > 0 && ` (${autoDisabled.length} auto-disabled)`}
+          </strong>
+          <ul>
+            {unhealthy.map(policy => (
+              <li key={policy.id}>
+                <em>{policy.name}</em> — {policy.runtime_health.error}
+              </li>
+            ))}
+          </ul>
+          <p className="muted">
+            A policy whose validator cannot be imported is disabled automatically so the
+            registry does not show it as active while it enforces nothing. Install the
+            validator, or delete the policy, then use Reload Runtime.
+          </p>
+        </div>
+      )}
       {reloadInfo && <p className="muted">Runtime loaded {reloadInfo.loaded_policies} policies, version {reloadInfo.policy_version}.</p>}
     </section>
   )

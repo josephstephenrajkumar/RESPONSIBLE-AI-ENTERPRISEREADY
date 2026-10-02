@@ -1,0 +1,19 @@
+{
+  "_comment": "Baseline runtime settings for the LiteLLM proxy. Applied by the gateway at start-up ONLY for keys that are not yet set in the proxy database (POST /config/update), then owned by administrators through the Proxy Manager. Keys pinned in litellm/config.yaml cannot be changed at runtime, so routing/callbacks/cache/general settings live here instead of there.",
+  "router_settings": {
+    "num_retries": 2,
+    "timeout": 30,
+    "allowed_fails": 3,
+    "cooldown_time": 30,
+    "routing_strategy": "simple-shuffle",
+    "fallbacks": [
+      {"openai/gpt-oss-120b": ["openai/gpt-oss-20b"]},
+      {"chat-default": ["judge-fast"]}
+    ]
+  },
+  "litellm_settings": {
+    "drop_params": true,
+    "request_timeout": 30
+  },
+  "general_settings": {}
+}
