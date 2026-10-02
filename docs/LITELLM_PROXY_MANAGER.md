@@ -57,6 +57,8 @@ callback was enabled with `environment_variables` and removed again; completions
 | Routing & Settings | **router settings form** (retries, timeout, allowed fails, cooldown, retry-after, strategy, fallbacks), **LiteLLM settings** (`drop_params`, `request_timeout`), **callbacks** (enable any of LiteLLM's callbacks with their env vars, remove), **cache** (Redis connection form from LiteLLM's own field list, test, save, ping, flush), **general settings** (generated form from `/config/list`, saved per field), re-apply shipped defaults, read-only bootstrap file |
 | Spend | read-only (LiteLLM's spend log) |
 
+Rotation note: after a rotation LiteLLM's `/key/info` may still return 200 for the deleted key (served from its cache); the proxy rejects the old key immediately and `/key/list` is the source of truth.
+
 Session handling: the frontend now keeps the Cognito refresh token, refreshes the ID token before expiry and on a
 401, and shows "Session expired — sign in again" instead of failing every call with *Invalid authentication token*.
 

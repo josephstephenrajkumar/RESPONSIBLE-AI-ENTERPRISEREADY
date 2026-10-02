@@ -122,4 +122,4 @@ Trigger: the Routing & Settings screen was read-only ("see config.yaml") and the
 Changes: `litellm/config.yaml` reduced to a bootstrap file; runtime settings seeded from
 `backend/app/litellm_runtime_defaults.json` and managed in the proxy database; every Proxy Manager section gained
 define/edit controls; Cognito refresh-token handling in the frontend. Verified locally (seed → persist across proxy
-restart → callback enable/remove → completions OK); unit tests 32 total. AWS deployment recorded below.
+restart → callback enable/remove → completions OK); unit tests 33 total. Deployed to dev (gateway image `f380f45`, proxy force-redeployed with the trimmed config, frontend uploaded) and smoke-tested; details in the deployment snapshot addendum.

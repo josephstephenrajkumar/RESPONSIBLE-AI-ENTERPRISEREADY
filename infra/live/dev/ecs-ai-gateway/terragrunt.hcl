@@ -71,7 +71,7 @@ inputs = {
 
   database_url       = dependency.aurora.outputs.database_url
   ecr_repository_url = dependency.ecr.outputs.repository_url
-  image_tag          = "7d16fb5"
+  image_tag          = "f380f45"
 
   # All model traffic goes through the LiteLLM proxy. The gateway task gets a
   # LiteLLM virtual key (generate it with /key/generate and store it in the

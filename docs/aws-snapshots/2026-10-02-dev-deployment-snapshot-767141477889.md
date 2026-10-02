@@ -92,3 +92,17 @@ $170–200/month at idle; see `docs/TECH_DEBT.md` for consolidation options.
 
 `observability → frontend-s3-cloudfront → api-gateway → ecs-ai-gateway → ecs-litellm-proxy → ecr → aurora-postgres → cognito → secrets → network`
 (`terragrunt destroy` per module). Decide on a final Aurora snapshot before destroying the cluster.
+
+## Addendum — Proxy Manager completeness (2026-10-02, later)
+
+- LiteLLM proxy: `litellm/config.yaml` trimmed to bootstrap-only and re-uploaded to S3 (`responsible-ai-dev-litellm-config-767141477889/litellm/config.yaml`); service `responsible-ai-dev-litellm-proxy` force-redeployed (task definition `:2`, image unchanged).
+- AI Gateway: image `f380f45` pushed to ECR, task definition `responsible-ai-dev-ai-gateway:6`, rollout COMPLETED.
+- Frontend: rebuilt and uploaded to `responsible-ai-dev-frontend-767141477889`, CloudFront `E3SBHD9QG7B984` invalidated.
+- Smoke (temporary Cognito admin, deleted afterwards):
+  - `GET /gateway/admin/litellm-config` → seeded `true`; router retries 2 / timeout 30 / cooldown 30 / simple-shuffle; fallback chain present; callbacks `otel`; 15 available callbacks; 27 cache fields; 39 general-settings fields.
+  - `POST /config/update` num_retries 3 → read back 3 → restored 2 (persisted in the proxy DB).
+  - `POST /config/field/update` max_parallel_requests=100 → `/config/list` shows `stored_in_db: true`.
+  - Cache test without Redis → clear "connection refused" message (ElastiCache is Sprint 5).
+  - Key rotation (gateway-side) → new key issued with the same alias and model scope; one key per alias remains; verified on the local proxy that the old key is rejected (401) immediately. Note: LiteLLM's `/key/info` still answers 200 for a deleted key (cache); use `/key/list` as the source of truth.
+  - Chat through the proxy with DB-held router settings → 200 "OK".
+  - Refresh token issued by Cognito (frontend session refresh depends on it).
