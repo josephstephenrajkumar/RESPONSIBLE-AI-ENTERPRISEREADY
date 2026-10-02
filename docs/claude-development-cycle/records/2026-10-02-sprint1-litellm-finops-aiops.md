@@ -102,3 +102,16 @@ Requirement: configure several providers in LiteLLM and consume any of their mod
 | AWS: `claude-3-haiku` on Bedrock | 404 from Bedrock — Anthropic use-case form not submitted for the account; documented; entry removed |
 | Chat selector grouped by provider; FinOps shows `catalog_test` purpose | pass |
 | Follow-up fix | framework mode no longer runs output checks/judges on a failed model call (`skipped_llm_error`) |
+
+## Addendum — LiteLLM Proxy Manager (same day)
+
+Requirement: let an administrator navigate, enable/disable and configure the proxy's services (providers and their
+credentials, models, keys/teams/budgets, MCP servers, guardrails, routing, spend) from the application instead of
+Terraform. Design: [docs/LITELLM_PROXY_MANAGER.md](../../LITELLM_PROXY_MANAGER.md), ADR-13.
+
+| Check | Result |
+|---|---|
+| Unit tests (`backend/tests/test_proxy_manager.py`) | 10 passed (28 total) |
+| Local: settings, provider disable → chat 409, credential round-trip, teams/keys, MCP (3 tools), guardrails, config rule, spend, denied route, redacted audit | pass |
+| AWS: gateway `7d16fb5` (task def :5) from a reviewed plan; frontend with the Proxy Manager tab uploaded | pass |
+| AWS smoke through API Gateway (temporary admin, deleted) | all checks pass; MCP registration first failed with `400 Server name cannot contain '-'` — a LiteLLM naming rule now enforced in the form and documented |

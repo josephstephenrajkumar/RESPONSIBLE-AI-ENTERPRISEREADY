@@ -310,9 +310,11 @@ function McpServers({ canManage }) {
   const n = useNotice()
   const load = () => litellmAdmin('GET', '/v1/mcp/server').then(d => setServers(Array.isArray(d) ? d : [])).catch(n.fail)
   useEffect(() => { load() }, [])
+  const nameOk = /^[A-Za-z0-9_]+$/.test(form.server_name)
   const add = async () => {
     setBusy('add'); n.clear()
     try {
+      if (!nameOk) throw new Error('Server name may only contain letters, digits and underscores (LiteLLM uses it as the tool prefix; hyphens are rejected).')
       const body = { server_name: form.server_name, alias: form.server_name, url: form.url, transport: form.transport, description: form.description || undefined }
       if (form.auth_type) { body.auth_type = form.auth_type; body.credentials = { auth_value: form.auth_value } }
       await litellmAdmin('POST', '/v1/mcp/server', body)
@@ -338,13 +340,13 @@ function McpServers({ canManage }) {
       <Notice notice={n.notice} />
       {canManage && (
         <div className="inline-form">
-          <label>Name<input value={form.server_name} onChange={(e) => setForm({ ...form, server_name: e.target.value })} placeholder="deepwiki" /></label>
+          <label>Name (letters, digits, underscores)<input value={form.server_name} onChange={(e) => setForm({ ...form, server_name: e.target.value })} placeholder="deepwiki" style={form.server_name && !nameOk ? { borderColor: '#dc2626' } : undefined} /></label>
           <label className="span-2">URL<input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://mcp.example.com/mcp" /></label>
           <label>Transport<select value={form.transport} onChange={(e) => setForm({ ...form, transport: e.target.value })}><option value="http">http (streamable)</option><option value="sse">sse</option></select></label>
           <label>Auth<select value={form.auth_type} onChange={(e) => setForm({ ...form, auth_type: e.target.value })}><option value="">none</option><option value="api_key">api_key</option><option value="bearer_token">bearer_token</option><option value="basic">basic</option></select></label>
           {form.auth_type && <label>Auth value<input type="password" autoComplete="off" value={form.auth_value} onChange={(e) => setForm({ ...form, auth_value: e.target.value })} /></label>}
           <label className="span-2">Description<input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-          <button type="button" disabled={!form.server_name || !form.url || busy === 'add'} onClick={add}>{busy === 'add' ? 'Registering...' : 'Register server'}</button>
+          <button type="button" disabled={!form.server_name || !nameOk || !form.url || busy === 'add'} onClick={add}>{busy === 'add' ? 'Registering...' : 'Register server'}</button>
         </div>
       )}
       <div className="table-wrap"><table className="policy-table finops-table"><thead><tr><th>Name</th><th>URL</th><th>Transport</th><th>Auth</th><th>Health</th><th>Tools</th><th>Actions</th></tr></thead>

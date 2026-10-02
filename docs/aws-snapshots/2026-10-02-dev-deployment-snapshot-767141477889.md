@@ -54,7 +54,7 @@ deployment does not touch.
   log group `/ecs/responsible-ai-dev-litellm-proxy`
 - AI Gateway: cluster `responsible-ai-dev-cluster`, service `responsible-ai-dev-ai-gateway`
   (1 vCPU / 2 GB, image tag `aed1bb5`), internal ALB `responsible-ai-dev-ai-gw`, log group `/ecs/responsible-ai-dev-ai-gateway`
-- Gateway task mounts `LITELLM_API_KEY` and `LITELLM_ADMIN_API_KEY` (model catalogue); `GROQ_API_KEY` is mounted only in the proxy task
+- Gateway task mounts `LITELLM_API_KEY` and `LITELLM_ADMIN_API_KEY` (Proxy Manager; both are the master key in dev — TD-25); `GROQ_API_KEY` is mounted only in the proxy task
 - Enabled providers for the admin model catalogue: `groq`, `bedrock` (proxy task role)
 
 ## API Gateway

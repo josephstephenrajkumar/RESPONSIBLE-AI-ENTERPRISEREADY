@@ -69,8 +69,21 @@ allowed: model calls must go through `app.llm_client` so they are policy-checked
   (`model_list`, `router_settings`, the OTel callback) stays repository-managed: edit the file, plan/apply
   `ecs-litellm-proxy`, force a new deployment.
 - Response caching requires Redis (ElastiCache); the Cache panel is informational until Sprint 5.
+- MCP server names must be `[A-Za-z0-9_]` only — LiteLLM uses the name as the tool prefix (`<server>-<tool>`) and
+  rejects hyphens with `400 Server name cannot contain '-'`. The form enforces this.
 - Teams map to tenants (`custom:tenant_id` in Cognito); the roadmap's Sprint 2 item "map tenant → team" wires the
   gateway to send the tenant's team key automatically.
+
+## Verified (dev AWS, 2026-10-02, gateway image `7d16fb5`)
+
+Through the public API Gateway with a temporary `admin` user: overview (readiness healthy, 5 models, callbacks `otel`);
+judge model overridden to `nova-micro` and reset; **Bedrock disabled → `/chat` for `nova-micro` returned
+`409 Provider 'bedrock' has been disabled by an administrator` and the selector dropped the Bedrock group → re-enabled**;
+Anthropic credential stored → provider enabled from source `litellm` → model added with `litellm_credential_name` →
+test returned the provider's 401 (dummy key) → model and credential removed; team `smoke-tenant` ($5/30d) and key
+`smoke-key` ($1/30d, 30 rpm) created, listed and deleted; MCP server `deepwiki_smoke` registered → 3 tools listed →
+healthy → removed; guardrails listed; `/config/update` on a config-pinned key rejected (400, as documented); LiteLLM
+spend by model returned; `POST /chat/completions` via the passthrough denied (403).
 
 ## Verified (dev, 2026-10-02, local proxy)
 
