@@ -12,6 +12,7 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | **Responsible-AI evaluation** | Ragas/TruLens become a sampled evaluation platform with datasets and trends, not inline per-request calls. |
 | **Governance & compliance** | Policies, audits and reports are tenant-aware, retained, exportable and reviewable. |
 | **Scale & platform** | The gateway serves hundreds of concurrent users and other applications in the organisation. |
+| **Multi-tenancy** | Tenants get separated data, configuration, credentials, budgets and policies, with a choice of isolation tier. See [MULTI_TENANCY_DESIGN.md](MULTI_TENANCY_DESIGN.md). |
 
 ## Sprint plan
 
@@ -34,6 +35,8 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 - Apply `ecs-litellm-proxy` in dev; move the Groq key out of the gateway task; issue the gateway a virtual key with `max_budget` and model scope.
 - ✅ Proxy Manager: teams and virtual keys with budgets/RPM/TPM from the admin UI (`/team/new`, `/key/generate`), provider credentials in LiteLLM's store, MCP servers, proxy guardrails, config/spend views. Remaining: map Cognito `custom:tenant_id` → LiteLLM team automatically in the gateway.
 - ✅ Multi-provider model catalogue in the admin screen (LiteLLM `/model/*`, `store_model_in_db`); Bedrock via the proxy task role (no key). Remaining: promote evaluated models to `config.yaml` and define fallbacks across providers.
+- **Provider credentials in AWS Secrets Manager** (requested 2026-10-02): LiteLLM `general_settings.key_management_system: aws_secret_manager` (read-only access mode) on the proxy; Proxy Manager gets a **Store in AWS Secrets Manager** action (gateway task role `PutSecretValue` scoped to `responsible-ai-<env>/*_api_key`), keeps "Store in proxy (LiteLLM DB)" as an explicit secondary option, shows credential provenance on each provider card (Secrets Manager name / LiteLLM DB / env), and hides the key field for deployment-managed providers unless "replace" is chosen. Verify LiteLLM's secret-name resolution (variable name vs. prefix) during implementation. Other secret managers (HashiCorp Vault, Azure Key Vault, GCP Secret Manager) use the same `key_management_system` setting, one per proxy instance.
+- **Tenant → LiteLLM team mapping**: the gateway calls the proxy with the tenant's team virtual key so team budgets, limits and model scope are enforced per tenant; team-scoped models ([MULTI_TENANCY_DESIGN.md](MULTI_TENANCY_DESIGN.md) §4.1).
 - Langfuse callback on the proxy; remove app-side decorators (TD-11).
 - CloudWatch EMF metrics from the gateway (latency, errors, cost) and alarms on p95 / error rate / budget burn; SNS notifications.
 - Separate Postgres database/schema and credentials for LiteLLM (TD-13); Alembic migrations for the app schema (TD-04).
@@ -50,6 +53,7 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 - Evaluation budget as a FinOps line (purpose `judge_*` already separated); judge-model A/B (`judge-fast` vs chat model) with agreement metrics.
 - Evaluation dashboard v2: per-model, per-judge, per-tenant trends; regression alerts when a score drops below a threshold after a model/prompt change.
 - Replace static placeholder pillars (verifiability, transparency, governance, controllability in framework mode) with real signals (TD-09).
+- **Per-tenant configuration**: `gateway_settings` tenant namespace (default/judge model, enablement, credential store, cache namespace, isolation tier), tenant selector in the Proxy Manager, `tenant-admin` role; mixed credential stores in one proxy (one tenant on LiteLLM DB, another on Secrets Manager).
 
 **Exit criteria**: framework-mode p95 drops below the code-mode p95 + 1 s; evaluation coverage and spend reported separately.
 
@@ -61,13 +65,15 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 - Prompt/response redaction before any trace export (Presidio on the proxy path via LiteLLM guardrail hook or pre-callback).
 - Harden admin endpoints: authenticate `/audit`, `/policy`, `/policies/test` (TD-08); move Guardrails Hub installs from the API to the image build (TD-19).
 - Compliance exports: monthly CSV/Parquet of audits, violations and spend to S3 for finance and risk.
+- **Tenant data separation**: `tenant_id` on all tenant-owned tables with Postgres row-level security; tenant-scoped policies, proxy guardrails and MCP access groups per team; tenant-scoped reports and exports (isolation tier T1 complete).
 
 **Exit criteria**: every report endpoint is tenant-scoped and role-gated; a quarterly compliance export runs unattended.
 
 ### Sprint 5 — Scale, resilience and user experience
 
 - ECS autoscaling on request count and p95 for both services; proxy ALB ingress by security group (TD-13).
-- LiteLLM caching (Redis/ElastiCache) for repeated prompts; cache-hit rate on the FinOps dashboard.
+- **Response caching with ElastiCache** ([RESPONSE_CACHING.md](RESPONSE_CACHING.md)): `elasticache-redis` Terraform module (Serverless Valkey/Redis, TLS, AUTH token in Secrets Manager, SG from the proxy only), `REDIS_*` on the proxy, caching pinned in `litellm/config.yaml` for prod or configured at runtime from the Proxy Manager Cache panel (`POST /cache/settings`, test, ping, flush), per-tenant cache namespaces, `cache_hit` in usage metering and a cache-hit-rate tile on FinOps.
+- **T2 dedicated proxy** module for tenants that need their own LiteLLM instance, database and secret manager (Vault / Key Vault / GCP).
 - Streaming responses end-to-end (SSE) with guardrail output checks on the streamed buffer.
 - Circuit breaker and provider health routing (`cooldown_time`, `allowed_fails`) tuned from load tests; multi-region readiness review.
 - Frontend: router, per-screen lazy loading, accessible charts, shared chart library consolidation (TD-10, TD-18).
@@ -77,7 +83,8 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 ### Sprint 6 — Platformisation and chargeback
 
 - Offer the LiteLLM proxy as the organisation's model gateway: self-service team keys, model catalogue, per-team dashboards.
-- Showback/chargeback: export spend by tenant/team to AWS Cost and Usage Report via cost allocation tags; FinOps anomaly detection (daily spend deviation).
+- Showback/chargeback: export spend by tenant/team to AWS Cost and Usage Report via cost allocation tags; FinOps anomaly detection (daily spend deviation); per-tenant chargeback reconciled with LiteLLM `/global/spend/report?group_by=team`.
+- Optional **T3 dedicated-account** deployment pattern (Terragrunt live folder per tenant account).
 - Agent/MCP governance: tool-call policies and metering for agentic workloads; `agent_id` becomes a first-class budget dimension.
 - Model lifecycle: deprecation schedule per model group; canary routing for new models with evaluation gates from Sprint 3.
 
@@ -94,6 +101,11 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | M5 Tenant-scoped governance and exports | Sprint 4 | M3 |
 | M6 500-user load test within SLO | Sprint 5 | M2, M4 |
 | M7 Second application onboarded | Sprint 6 | M3, M5 |
+| M8 Provider credentials in AWS Secrets Manager (plus LiteLLM DB as explicit option) | Sprint 2 | M2 |
+| M9 Tenants enforced via LiteLLM teams; per-tenant settings and credential store | Sprints 2–3 | M8 |
+| M10 Tenant data separation (RLS, tenant-scoped policies/guardrails/MCP/reports) — isolation tier T1 | Sprint 4 | M9 |
+| M11 Response caching on ElastiCache with per-tenant namespaces | Sprint 5 | M2 |
+| M12 Dedicated-proxy tier (T2) available | Sprint 5 | M10 |
 
 ## Success metrics
 

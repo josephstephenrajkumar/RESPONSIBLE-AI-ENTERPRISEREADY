@@ -31,6 +31,8 @@ The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, 
 - [Technical Debt Register](docs/TECH_DEBT.md)
 - [Model Catalogue](docs/MODEL_CATALOG.md) — multi-provider models through LiteLLM, admin screen, enabling a provider
 - [LiteLLM Proxy Manager](docs/LITELLM_PROXY_MANAGER.md) — providers, credentials, keys & budgets, MCP, guardrails, routing, spend
+- [Multi-Tenancy Design](docs/MULTI_TENANCY_DESIGN.md) — tenancy model, isolation tiers, per-tenant config and credential stores
+- [Response Caching](docs/RESPONSE_CACHING.md) — enabling LiteLLM caching on ElastiCache
 - [Architecture Blueprint](docs/ARCHITECTURE_BLUEPRINT.md) (v1 shape)
 - [AWS Service Mapping](docs/AWS_SERVICE_MAPPING.md)
 - [Migration Plan](docs/MIGRATION_PLAN.md)

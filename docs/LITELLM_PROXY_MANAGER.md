@@ -30,6 +30,36 @@ provider reference it by name (`litellm_credential_name`), so the key never appe
 Disabling a provider hides its models from the chat selector and makes `/chat` answer `409 Provider 'x' has been
 disabled by an administrator`. Disabling a single model works the same way (Models → ✓/✕ buttons).
 
+## Where provider credentials are stored
+
+| Card shows | Storage | Path to the proxy | Rotation / audit |
+|---|---|---|---|
+| source `env` (Groq today) | **AWS Secrets Manager** `responsible-ai-<env>/<provider>_api_key`, KMS-encrypted | Terraform mounts it into the **LiteLLM task only** (`secrets` block) | Secrets Manager rotation + CloudTrail; redeploy proxy after rotation |
+| source `litellm` ("Store in proxy") | **LiteLLM database** (Aurora, `LiteLLM_CredentialsTable`), encrypted with `LITELLM_SALT_KEY` (itself in Secrets Manager) | browser → API Gateway (TLS) → gateway → proxy over the VPC, forwarded once; the gateway never persists or logs it | replace from the card; audit row `litellm_post /credentials` with the value redacted |
+| source `iam` (Bedrock) | no key | proxy task role | IAM |
+| planned (Sprint 2) | **AWS Secrets Manager** written by the gateway, read by LiteLLM's `key_management_system: aws_secret_manager` | key never enters the LiteLLM DB | AWS-native; Vault / Key Vault / GCP via the same setting on a dedicated proxy |
+
+"Store in proxy" is therefore the LiteLLM-database path, not Secrets Manager. The Secrets-Manager-backed path and
+per-tenant stores are on the roadmap (Sprint 2–3, [MULTI_TENANCY_DESIGN.md](MULTI_TENANCY_DESIGN.md) §4.3).
+
+## LiteLLM's native Admin UI
+
+LiteLLM ships its own console at `<proxy>/ui` (login: `UI_USERNAME`/`UI_PASSWORD` if set, otherwise user `admin` with
+the master key; SSO is a LiteLLM enterprise feature). It shows every capability, including ones the Proxy Manager does
+not wrap yet.
+
+- Local: http://localhost:4000/ui (master key `sk-local-dev-master-key` from docker-compose).
+- AWS dev: the proxy ALB is **VPC-internal** by design, so the UI is not reachable from the internet. Options, in order of
+  preference: an SSM Session Manager port-forward through a small bastion or an ECS task in the VPC
+  (`aws ssm start-session --document-name AWS-StartPortForwardingSessionToRemoteHost` to the internal ALB, port 80);
+  AWS Client VPN; or, later, publishing `/ui` behind API Gateway + Cognito (two logins unless SSO). Do not expose the
+  proxy ALB publicly: it carries the master key login.
+
+## Response caching
+
+Not enabled yet (needs Redis). See [RESPONSE_CACHING.md](RESPONSE_CACHING.md) for provisioning ElastiCache and turning
+caching on either in `config.yaml` or at runtime from the Cache panel (`POST /cache/settings`, test, ping, flush).
+
 ## Sections and the LiteLLM APIs behind them
 
 | Section | What you can do | LiteLLM endpoints (through `/gateway/admin/litellm/*` or curated gateway routes) |
