@@ -1,116 +1,77 @@
 # Service Deployment Guide
 
-## Backend Service Deployment
+How to ship a new backend image, a new frontend build, or a LiteLLM configuration change to an environment whose
+infrastructure already exists. Names below are the `dev` names; see the
+[runbook](./AWS_DEV_DEPLOYMENT_RUNBOOK.md) for the full flow.
 
-### Build Docker Image
+## Backend (AI Gateway)
 
 ```bash
-cd backend
+SHA=$(git rev-parse --short HEAD)
+ECR_URL=$(cd infra/live/dev/ecr && terragrunt output -raw repository_url)
 
-# Build image
-docker build -t responsible-ai-gateway:latest .
-
-cd ..
+docker build --platform linux/amd64 -t "responsible-ai-gateway:${SHA}" ./backend
+aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin "${ECR_URL%%/*}"
+docker tag "responsible-ai-gateway:${SHA}" "${ECR_URL}:${SHA}"
+docker push "${ECR_URL}:${SHA}"
 ```
 
-### Push to ECR
+Pin the tag and roll the service through Terraform (preferred: the task definition stays in state):
 
 ```bash
-# Get ECR repository URL
-ECR_URL=$(aws ecr describe-repositories \
-  --repository-names responsible-ai-gateway \
-  --query 'repositories[0].repositoryUri' \
-  --output text)
-
-# Login to ECR
-aws ecr get-login-password --region ap-southeast-1 | \
-  docker login --username AWS --password-stdin $(echo $ECR_URL | cut -d/ -f1)
-
-# Tag and push
-docker tag responsible-ai-gateway:latest ${ECR_URL}:latest
-docker push ${ECR_URL}:latest
+sed -i '' "s/image_tag *= *\"[^\"]*\"/image_tag          = \"${SHA}\"/" infra/live/dev/ecs-ai-gateway/terragrunt.hcl
+(cd infra/live/dev/ecs-ai-gateway && terragrunt --non-interactive plan -out=/tmp/gw.tfplan && terragrunt --non-interactive apply /tmp/gw.tfplan)
+git add infra/live/dev/ecs-ai-gateway/terragrunt.hcl && git commit -m "deploy: gateway image ${SHA}"
 ```
 
-### Deploy to ECS
+Monitor:
 
 ```bash
-# Update service to use new image
-aws ecs update-service \
-  --cluster responsible-ai-dev \
-  --service responsible-ai-gateway \
-  --force-new-deployment
-
-# Monitor deployment
-aws logs tail /ecs/responsible-ai-gateway-dev --follow
+aws ecs describe-services --cluster responsible-ai-dev-cluster --services responsible-ai-dev-ai-gateway \
+  --query 'services[0].deployments[].{state:rolloutState,taskdef:taskDefinition,running:runningCount}'
+aws logs tail /ecs/responsible-ai-dev-ai-gateway --follow
 ```
 
-## Frontend Service Deployment
+## LiteLLM proxy configuration
 
-### Build React App
+Edit `litellm/config.yaml` (models, groups, fallbacks, budgets). Only list models the provider account serves.
 
 ```bash
-cd frontend
-
-npm install
-npm run build
-
-cd ..
+(cd infra/live/dev/ecs-litellm-proxy && terragrunt --non-interactive plan -out=/tmp/llm.tfplan && terragrunt --non-interactive apply /tmp/llm.tfplan)   # re-uploads the S3 object
+aws ecs update-service --cluster responsible-ai-dev-litellm-cluster --service responsible-ai-dev-litellm-proxy --force-new-deployment
+aws logs tail /ecs/responsible-ai-dev-litellm-proxy --since 5m | grep -E "Proxy initialized|ERROR"
 ```
 
-### Upload to S3
+Rotating the provider key: `aws secretsmanager put-secret-value --secret-id responsible-ai-dev/groq_api_key ...`, then force a
+new deployment of the proxy service. The gateway does not need to restart.
+
+## Frontend
 
 ```bash
-# Get S3 bucket name
-S3_BUCKET=$(aws s3 ls \
-  --query "Buckets[?contains(Name, 'responsible-ai-frontend-dev')].Name" \
-  --output text)
+API=$(cd infra/live/dev/api-gateway && terragrunt output -raw api_endpoint)
+BUCKET=$(cd infra/live/dev/frontend-s3-cloudfront && terragrunt output -raw bucket_name)
+DIST=$(cd infra/live/dev/frontend-s3-cloudfront && terragrunt output -raw cloudfront_distribution_id)
 
-# Upload files
-aws s3 sync frontend/dist/ s3://${S3_BUCKET}/ --delete
+echo "VITE_API_BASE=${API}" > frontend/.env.production
+(cd frontend && npm ci && npm run build)
+aws s3 sync frontend/dist/ "s3://${BUCKET}/" --delete --cache-control "public, max-age=31536000, immutable" --exclude index.html
+aws s3 cp frontend/dist/index.html "s3://${BUCKET}/index.html" --cache-control "no-cache, no-store, must-revalidate"
+aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*"
 ```
 
-### Invalidate CloudFront Cache
+## Verify
 
 ```bash
-# Get distribution ID
-DIST_ID=$(aws cloudfront list-distributions \
-  --query "DistributionList.Items[0].Id" \
-  --output text)
-
-# Clear cache
-aws cloudfront create-invalidation --distribution-id ${DIST_ID} --paths "/*"
-```
-
-## Verify Services
-
-```bash
-# Get API endpoint
-API_ENDPOINT=$(aws apigatewayv2 get-apis \
-  --query "Items[?Name=='responsible-ai-api'].ApiEndpoint" \
-  --output text)
-
-# Test health
-curl -X GET "${API_ENDPOINT}/health"
-
-# Get CloudFront domain
-CF_DOMAIN=$(aws cloudfront get-distribution \
-  --id ${DIST_ID} \
-  --query 'Distribution.DomainName' \
-  --output text)
-
-echo "Frontend: https://${CF_DOMAIN}"
+curl -s "$API/health"
+curl -s -o /dev/null -w '%{http_code}\n' "$API/gateway/health"          # 401 without a token
+# with a Cognito id token:
+curl -s -H "Authorization: Bearer $TOKEN" "$API/gateway/health"          # application_holds_provider_key: false
+backend/venv/bin/python tests/run_scenarios.py --base-url "$API" --token "$TOKEN" --only LITELLM
 ```
 
 ## Rollback
 
-```bash
-# Rollback backend to previous task definition
-aws ecs update-service \
-  --cluster responsible-ai-dev \
-  --service responsible-ai-gateway \
-  --task-definition responsible-ai-gateway:1 \
-  --force-new-deployment
-
-# Rollback frontend (restore previous S3 version)
-# Use S3 version history to restore
-```
+Backend: set `image_tag` back to the previous sha and apply `ecs-ai-gateway` (or
+`aws ecs update-service ... --task-definition responsible-ai-dev-ai-gateway:<previous revision>` for an immediate
+revert, then reconcile Terraform). LiteLLM config: revert `litellm/config.yaml`, apply, force a new deployment.
+Frontend: redeploy the previous build, or restore the previous object versions in the bucket.

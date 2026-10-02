@@ -9,14 +9,18 @@ The application enforces governance across:
 - Responsible AI evaluation
 - audit event persistence
 - trace and observability metadata
-- operational review through Jaeger and Langfuse
+- model provider access through the LiteLLM proxy
+- cost attribution and operational review (FinOps / AIOps dashboards, Jaeger/X-Ray, Langfuse)
 
 ## Storage Policy
 
 Runtime governance data is stored in SQLAlchemy tables:
 
 - `policy_configs`: active policy payload
-- `audit_events`: request-level audit events
+- `audit_events`: request-level audit events (user-scoped)
+- `guardrail_violations`: per-violation records
+- `safety_policies`, `safety_policy_patterns`, `safety_policy_hub_validators`, `policy_audit_events`, `runtime_policy_decisions`: policy governance
+- `llm_usage_events`: one row per model call (tokens, cost, latency, retries, fallbacks, status, tenant/user/purpose); contains no prompt or completion text
 
 Legacy files are retained only as migration seed sources:
 
@@ -38,7 +42,7 @@ Each chat request stores:
 - answer summary
 - full Responsible AI pillar assessment
 
-The `/audit` endpoint returns recent events and should be protected by authentication before production exposure.
+The `/audit` endpoint returns recent events and should be protected by authentication before production exposure (TD-08). `/audit/me` and the `/reports/*` endpoints are role-gated.
 
 ## Observability Policy
 
@@ -67,12 +71,19 @@ Every response includes assessments for:
 Current framework status:
 
 - Presidio is implemented for privacy detection/redaction with regex fallback.
-- Guardrails AI is implemented for safety validation and policy blocking.
-- TruLens and Ragas remain lightweight placeholder hooks.
+- Guardrails AI is implemented for safety validation and policy blocking; empty model output is not treated as a violation.
+- Ragas (fairness) and TruLens (explainability) are implemented as LLM judges routed through the LiteLLM proxy and metered as `judge_*` purposes.
+- All model calls leave the application through the LiteLLM proxy; the application tier holds no provider credential in `proxy` mode.
+
+## Model Access, Cost and Operations Policy
+
+- Provider credentials live only in the LiteLLM proxy (Secrets Manager → proxy task). The gateway uses a LiteLLM key scoped to the models and budget it needs.
+- Every model call is attributed to user, tenant, client, agent and purpose and metered for cost; the FinOps dashboard (`finops`/`admin` roles) is the review surface and LiteLLM key/team budgets are the enforcement point.
+- Availability, latency, error classes and dependency health are reviewed on the AIOps dashboard (`aiops`/`admin` roles); CloudWatch alarms cover ECS CPU, log errors, proxy 5xx and unhealthy hosts.
 
 ## Safety Policy Source
 
-The current Guardrails AI safety rules are local starter rules embedded in application code. They cover categories such as phishing/fraud, AML evasion, cyber abuse, violence/harm, and unsafe financial actions.
+Guardrails AI safety rules are database-backed policies with a draft → approved → active lifecycle, plus a small set of built-in dangerous-instruction patterns in application code. They cover categories such as phishing/fraud, AML evasion, cyber abuse, violence/harm, and unsafe financial actions.
 
 These rules are not automatically updated from Guardrails Hub, BIS/BCBS, MAS, or any online regulator source. Production governance should move safety rules into approved versioned metadata or database-backed policy configuration.
 

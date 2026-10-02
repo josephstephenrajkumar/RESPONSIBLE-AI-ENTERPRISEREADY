@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Approved for Sprint 1 implementation; Sprints 2+ are proposals (see [ROADMAP.md](ROADMAP.md)) |
+| Status | Sprint 1 implemented and deployed to dev (account 767141477889, 2026-10-02); Sprints 2+ are proposals (see [ROADMAP.md](ROADMAP.md)) |
 | Date | 2026-10-02 |
 | Owners | Platform / AI Gateway team |
 | Related | [ARCHITECTURE_BLUEPRINT.md](ARCHITECTURE_BLUEPRINT.md) (v1 shape), [AWS_SERVICE_MAPPING.md](AWS_SERVICE_MAPPING.md), [TECH_DEBT.md](TECH_DEBT.md), [RESPONSIBLE_AI_DESIGN.md](RESPONSIBLE_AI_DESIGN.md) |
@@ -249,7 +249,7 @@ Local stack: `docker compose up -d` (Jaeger, Postgres, LiteLLM) then run the bac
 ## 10. Rollout and rollback
 
 1. **Local** (done): compose stack, backend in `proxy` mode with `GROQ_API_KEY` blank; unit tests, scenario suite, dashboards populated.
-2. **Dev AWS** (Sprint 2): `./deploy.sh apply secrets` (new secrets), store the Groq key in `groq_api_key`; `apply ecs-litellm-proxy`; generate the gateway virtual key and store in `litellm_gateway_key`; `apply ecs-ai-gateway`; verify `/gateway/health` reports `application_holds_provider_key: false`.
+2. **Dev AWS** (done 2026-10-02 as a fresh stack in account 767141477889, see [aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md](aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md)): secrets applied and populated, `ecs-litellm-proxy` and `ecs-ai-gateway` deployed from reviewed plans, `/gateway/health` reports `application_holds_provider_key: false`. The gateway temporarily uses the master key (TD-25) until a scoped virtual key is issued from inside the VPC.
 3. **Rollback**: set `llm_gateway_mode = "direct"` in the gateway Terragrunt inputs (re-mounts `GROQ_API_KEY`) and redeploy the gateway task; the proxy can stay running.
 
 ## 11. Risks and open questions
@@ -260,7 +260,7 @@ Local stack: `docker compose up -d` (Jaeger, Postgres, LiteLLM) then run the bac
 | Shared Aurora database for LiteLLM tables in dev. | Separate database/schema and credentials in prod (Sprint 2). |
 | Dual Langfuse emission when configured on both tiers. | Document proxy-only configuration; remove app decorators in Sprint 3. |
 | Judge model change alters evaluation scores. | Default unchanged; the Evaluation dashboard already splits by engine; add judge-model dimension in Sprint 3. |
-| Current Groq key in `backend/.env` is rejected by Groq (401) as of this review. | Rotate the key; the mock mode keeps development unblocked. |
+| Groq account serves only `openai/gpt-oss-*` models (no llama-3.x). | `litellm/config.yaml` lists only served models; `/gateway/health` flags `default_model_available: false` if the default disappears. |
 
 ## 12. Verification evidence (2026-10-02, local, mock upstream)
 
@@ -270,4 +270,9 @@ Local stack: `docker compose up -d` (Jaeger, Postgres, LiteLLM) then run the bac
 - Reports: FinOps 19 calls / $0.000523, judge share 52 %, budget `ok`; AIOps availability 1.0, p50 6 ms, p95 4143 ms, fallbacks 1, all dependencies `ok`.
 - Tracing: Jaeger lists `responsible-ai-chat-agent` and `litellm-proxy`.
 - Infrastructure: `terraform validate` passes for `ecs-litellm-proxy`, `ecs-ai-gateway`, `secrets`, `aurora-postgres`.
-- Real Groq path: proxy retried twice, fell back, and surfaced Groq's `invalid_api_key` as a clean 401 — the routing works; the key must be rotated.
+- Real Groq path: proxy retried twice, fell back, and surfaced Groq's `invalid_api_key` as a clean 401 — the routing works; the key was then rotated.
+
+### AWS dev (2026-10-02, account 767141477889, image `aed1bb5`)
+
+- Authenticated smoke test through API Gateway (temporary Cognito admin, deleted afterwards): `/gateway/health` → `mode: proxy`, reachable, 4 models, default available, `application_holds_provider_key: false`; code-mode chat 597 ms, `cost_source: litellm`; framework-mode chat with Presidio, Guardrails, Ragas (1.0) and TruLens (0.1) real engines; `/reports/finops` and `/reports/aiops` populated; Aurora `postgresql`; X-Ray tracing enabled; CORS preflight from CloudFront → 200.
+- Defect found during verification and fixed in `aed1bb5`: `Guard.validate('')` fails on empty text, so a GPT-OSS answer whose token budget was consumed by reasoning was reported as a safety block. Empty text is now skipped and an explicit "no text produced" answer with `finish_reason` is returned; re-verified in AWS (`finish_reason=length`, not blocked).

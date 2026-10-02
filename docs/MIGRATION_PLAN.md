@@ -17,7 +17,7 @@ The current source began as a local Responsible AI Chat Agent:
 This new project folder introduces:
 
 - Backend renamed conceptually as an AI Gateway / Policy Enforcement Proxy.
-- Async Groq calls through a reusable HTTP client.
+- Async model calls through a reusable HTTP client (now `app.llm_client` → LiteLLM proxy).
 - Cognito-compatible JWT validation hooks.
 - Local auth bypass for development through `AUTH_REQUIRED=false`.
 - User profile upsert on each authenticated request.
@@ -28,30 +28,30 @@ This new project folder introduces:
 - Frontend API client support for bearer tokens.
 - Architecture and AWS service mapping documentation.
 
-## Phase 2 - AWS Foundation
+## Phase 2 - AWS Foundation — done (dev, account 767141477889, 2026-10-02)
 
-Provision with Terragrunt/Terraform:
+Provisioned with Terragrunt/Terraform (see `docs/aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md`):
 
 1. Network: VPC, public/private subnets, security groups, NAT Gateway.
 2. Frontend: S3 private bucket and CloudFront distribution.
 3. Auth: Cognito User Pool and App Client.
 4. Database: Aurora PostgreSQL.
-5. Backend: ECR repository and ECS Fargate service.
-6. API: API Gateway HTTP API to ECS integration.
-7. Configuration: Secrets Manager and Parameter Store.
-8. Observability: CloudWatch logs, alarms, and X-Ray/OpenTelemetry.
+5. Backend: ECR repository and ECS Fargate service (AI Gateway).
+6. Model gateway: ECS Fargate LiteLLM proxy with S3-distributed config; the gateway holds no provider key.
+7. API: API Gateway HTTP API to ECS integration.
+8. Configuration: Secrets Manager.
+9. Observability: CloudWatch logs, alarms, and X-Ray/OpenTelemetry (ADOT sidecars on both services).
 
-## Phase 3 - Production Hardening
+## Phase 3 - Production Hardening — in progress (roadmap Sprints 2–4)
 
-Add:
+Done: admin authorization for policy and report endpoints (Cognito groups incl. `finops`/`aiops`); retries, fallbacks
+and cost metering at the LiteLLM proxy; FinOps and AIOps dashboards. Remaining:
 
 - Alembic-managed database migrations.
-- Per-user and per-client rate limiting.
+- Per-tenant/team budgets and RPM/TPM limits via LiteLLM virtual keys.
 - Tenant-aware policy ownership.
-- Admin authorization for policy and report endpoints.
 - Load tests for hundreds of concurrent chat requests.
-- Groq quota validation and provider-side rate planning.
-- Circuit breaker behavior for provider outages.
+- Provider quota planning and tuned circuit-breaker settings (`allowed_fails`, `cooldown_time`) from load tests.
 - CloudWatch dashboards and alarms.
 - Backup and retention policies.
 

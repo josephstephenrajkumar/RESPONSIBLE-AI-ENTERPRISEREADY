@@ -53,6 +53,20 @@ bypass of the proxy, sync path used by TruLens, model allowlist) and the FinOps/
    request `"model":"mock-fail"` (expect `usage.fallbacks` ≥ 1) and `"model":"mock-slow"` (expect
    `latency_ms` ≈ 2000), then check the AIOps "Per model" table.
 
+## AWS dev smoke test
+
+With a Cognito id token for an `admin` user (runbook §15):
+
+```bash
+API=https://0nl4sfks87.execute-api.ap-southeast-1.amazonaws.com
+curl -s "$API/health"
+curl -s -H "Authorization: Bearer $TOKEN" "$API/gateway/health" | python3 -m json.tool
+backend/venv/bin/python tests/run_scenarios.py --base-url "$API" --token "$TOKEN" --only LITELLM
+```
+
+Expected: `application_holds_provider_key: false`, `default_model_available: true`, `LITELLM-*` scenarios pass, and
+the FinOps/AIOps dashboards show the calls with `cost_source: litellm`.
+
 ## Backend
 
 1. Install backend dependencies:

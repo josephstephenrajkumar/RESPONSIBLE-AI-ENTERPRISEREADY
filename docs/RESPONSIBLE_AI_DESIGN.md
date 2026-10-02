@@ -35,15 +35,16 @@ React + Vite Frontend
 FastAPI Backend
     |
     |-- Pydantic schemas validate request/response contracts
-    |-- GroqClient calls Groq-compatible chat completions
+    |-- app.llm_client sends every model call (chat + judges) to the LiteLLM proxy
     |-- Responsible AI modules evaluate eight AI governance pillars
-    |-- SQLAlchemy persists policy and audit events
+    |-- SQLAlchemy persists policy, audit and llm_usage_events (metering)
     |-- OpenTelemetry emits request, LLM, check, and DB spans
-    |-- Langfuse emits framework-mode generation traces
+    |-- Langfuse emits framework-mode generation traces (optional)
     |
-    | HTTPX
+    | HTTPX (OpenAI-compatible, LiteLLM virtual key)
     v
-Groq API
+LiteLLM proxy  --->  Groq / Amazon Bedrock / OpenAI
+  (provider keys, model groups, retries, fallbacks, budgets, cost headers)
 
 FastAPI Backend
     | OpenTelemetry Jaeger Thrift exporter
@@ -159,7 +160,7 @@ DATABASE_URL=sqlite:////app/backend/app/storage/responsible_ai.db
 Local non-Docker default:
 
 ```text
-sqlite:////home/joseph/llm_engineering/responsible-ai-chat-agent/backend/app/storage/responsible_ai.db
+sqlite:///<repo>/backend/app/storage/responsible_ai.db
 ```
 
 ### 3.6 Observability
@@ -315,9 +316,14 @@ Configuration values:
 | Setting | Purpose | Default |
 | --- | --- | --- |
 | `PROJECT_NAME` | FastAPI app title | `Responsible AI Chat Agent` |
-| `GROQ_API_KEY` | Groq credential | empty |
-| `GROQ_MODEL` | default model | `llama-3.3-70b-versatile` |
-| `GROQ_API_URL` | Groq OpenAI-compatible base URL | `https://api.groq.com/openai/v1` |
+| `LLM_GATEWAY_MODE` | `proxy` (LiteLLM) or `direct` (break-glass Groq call) | `proxy` |
+| `LITELLM_PROXY_URL` | LiteLLM base URL | `http://localhost:4000` |
+| `LITELLM_API_KEY` | LiteLLM virtual key (master key locally) | empty |
+| `LLM_DEFAULT_MODEL` | default chat model (must exist in the proxy `model_list`) | `openai/gpt-oss-120b` |
+| `LLM_JUDGE_MODEL` | model/group for Ragas and TruLens judges | = default model |
+| `LLM_ALLOWED_MODELS` | optional comma-separated allowlist | empty |
+| `FINOPS_MONTHLY_BUDGET_USD` | FinOps budget gauge | `0` |
+| `GROQ_API_KEY` / `GROQ_MODEL` / `GROQ_API_URL` | direct-mode provider settings; `GROQ_API_KEY` is otherwise consumed only by the proxy container | empty / `openai/gpt-oss-120b` / Groq URL |
 | `LANGFUSE_PUBLIC_KEY` | Langfuse public key | empty |
 | `LANGFUSE_SECRET_KEY` | Langfuse secret key | empty |
 | `LANGFUSE_HOST` | Langfuse host | `https://cloud.langfuse.com` |
@@ -630,7 +636,7 @@ Langfuse records:
 ### 9.1 Local Backend
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent/backend
+cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
@@ -638,7 +644,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ### 9.2 Local Frontend
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent/frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -646,19 +652,18 @@ npm run dev
 ### 9.3 Local Jaeger
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent
-docker compose up jaeger
+docker compose up -d        # Jaeger, Postgres and the LiteLLM proxy
 ```
 
 ### 9.4 Full Docker Compose
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent
-docker compose up --build
+docker compose --profile full up --build
 ```
 
 Docker Compose services:
 
+- `litellm`: LiteLLM proxy (`litellm/config.yaml`), `litellm-db`: Postgres for keys and spend log
 - `jaeger`: Jaeger all-in-one
 - `backend`: Python FastAPI service
 - `frontend`: Node/Vite service
@@ -727,21 +732,19 @@ sqlite3 backend/app/storage/responsible_ai.db \
 
 ## 12. Known Limitations
 
-- Guardrails AI safety rules are currently starter policy rules embedded in Python instead of versioned policy metadata.
-- TruLens and Ragas judge calls run through a minimal custom Groq-backed adapter rather than a full instrumented `TruApp`/`TruChain` session or `ragas.evaluate()` batch pipeline; this keeps `/chat` synchronous and avoids a second persistence layer, but means TruLens/Ragas-native dashboards (as opposed to this app's own `/reports/evaluations`) aren't available.
-- SQLite is not recommended for multi-instance production deployment.
-- No authentication is implemented yet.
-- No Alembic migration history is configured yet.
+- TruLens and Ragas judge calls run inline on every framework-mode request through a minimal adapter (metered via the
+  proxy) rather than a `TruApp` session or a `ragas.evaluate()` batch pipeline; TruLens/Ragas-native dashboards are
+  not available and framework-mode latency includes two judge calls (roadmap Sprint 3, TD-03).
+- SQLite is the local default only; AWS uses Aurora PostgreSQL. No Alembic migration history yet (TD-04).
+- `/audit`, `/policy` and `/policies/test` are unauthenticated (TD-08).
 - Audit retention is represented in policy but not yet enforced by a cleanup job.
+- The dev gateway uses the LiteLLM master key until a scoped virtual key is issued (TD-25).
+- Presidio can redact common tokens such as "AI" and distort prompts (TD-26).
+
+The full register is in [TECH_DEBT.md](TECH_DEBT.md).
 
 ## 13. Future Enhancements
 
-- Move Guardrails AI policy rules into versioned metadata or database-backed policy configuration.
-- Add Postgres and Alembic.
-- Add authentication and role-based access.
-- Add audit retention job.
-- Add OpenTelemetry Collector.
-- Add structured JSON logging.
-- Add frontend audit viewer.
-- Add policy editing workflow.
-- Add prompt/response redaction before traces leave the backend.
+See [ROADMAP.md](ROADMAP.md). Highlights: per-tenant budgets and virtual keys at the proxy (Sprint 2), evaluation
+off the request path with datasets and trends (Sprint 3), tenant-aware governance, retention and exports (Sprint 4),
+caching, streaming and autoscaling (Sprint 5), platformisation and chargeback (Sprint 6).

@@ -56,6 +56,9 @@ backend/venv/bin/python3 tests/run_scenarios.py --only Presidio
 
 # against a different gateway, with a JSON report
 backend/venv/bin/python3 tests/run_scenarios.py --base-url http://localhost:8000 --json report.json
+
+# against the AWS dev gateway (AUTH_REQUIRED=true): pass a Cognito id token for an admin user
+backend/venv/bin/python3 tests/run_scenarios.py --base-url https://0nl4sfks87.execute-api.ap-southeast-1.amazonaws.com --token "$TOKEN"
 ```
 
 Exit code is non-zero if anything `FAIL`s or `ERROR`s (`DEGRADED` does not fail the run).

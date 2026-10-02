@@ -17,7 +17,7 @@ Before any deployment, a human release owner confirms:
 - rollback, monitoring, and incident contacts are ready;
 - responsible-AI policy changes have the required governance approval.
 
-Never put `GROQ_API_KEY`, AWS credentials, database passwords, session tokens, or JWT secrets in this folder or any chat prompt.
+Never put `GROQ_API_KEY`, LiteLLM keys, AWS credentials, database passwords, session tokens, or JWT secrets in this folder or any chat prompt.
 
 ## Project Release Order
 
@@ -29,12 +29,15 @@ Follow the current AWS runbook and verify every plan before applying:
 3. cognito
 4. aurora-postgres
 5. ecr
-6. build and push backend image
-7. ecs-ai-gateway
-8. api-gateway
-9. frontend-s3-cloudfront
-10. observability
+6. build and push backend image (linux/amd64, tagged with the commit sha; pin image_tag)
+7. ecs-litellm-proxy
+8. ecs-ai-gateway
+9. api-gateway
+10. frontend-s3-cloudfront (then build/upload the frontend and add the CloudFront origin to cognito, api-gateway and ecs-ai-gateway)
+11. observability
 ```
+
+Apply saved plans that have been read (`plan -out` → review → `apply <file>`), never `-auto-approve` against an existing environment.
 
 The repository's infrastructure is not assumed complete merely because a Terragrunt directory exists. Confirm each module has reviewed Terraform implementation, valid inputs, outputs, state configuration, and a successful plan in the target environment.
 
@@ -45,6 +48,9 @@ After an approved deployment, the release owner verifies:
 - `/health` and root metadata;
 - authentication and authorization behavior;
 - `/observability` and trace export;
+- `/gateway/health` reports `mode: proxy`, the default model served, and `application_holds_provider_key: false`;
+- the gateway task definition mounts `LITELLM_API_KEY` only;
+- FinOps and AIOps reports populated by the smoke-test calls with `cost_source: litellm`;
 - `/policy` and policy lifecycle state;
 - benign code and framework chat flows;
 - synthetic privacy redaction;

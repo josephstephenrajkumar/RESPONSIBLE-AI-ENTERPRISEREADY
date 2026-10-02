@@ -36,8 +36,9 @@ A complete guide to setting up, configuring, and running the Responsible AI Chat
 
 ### API Keys
 
-- **GROQ_API_KEY** (optional) — Get from https://console.groq.com/keys
-  - Without this key, the backend returns safe fallback responses (useful for local testing)
+- **GROQ_API_KEY** — Get from https://console.groq.com/keys. It is consumed by the LiteLLM proxy container
+  (`docker compose` reads it from `backend/.env`); the backend itself never calls Groq in `proxy` mode.
+  - Without a key, run the zero-spend mock mode instead (`tests/mock_llm_upstream.py` + `docker-compose.mock.yml`)
 
 ### Verify Installation
 
@@ -63,8 +64,8 @@ The fastest way to get the entire stack running locally.
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/josephstephenrajkumar/responsible-ai-chat-agent.git
-cd responsible-ai-chat-agent
+git clone https://github.com/josephstephenrajkumar/RESPONSIBLE-AI-ENTERPRISEREADY.git
+cd RESPONSIBLE-AI-ENTERPRISEREADY
 ```
 
 ### 2. Set Environment Variables (Optional)
@@ -73,22 +74,26 @@ cd responsible-ai-chat-agent
 # Copy the example backend environment file
 cp backend/.env.example backend/.env
 
-# Edit backend/.env and add your GROQ_API_KEY (optional)
+# Edit backend/.env and set GROQ_API_KEY (read by the LiteLLM proxy container)
 # nano backend/.env  # or use your favorite editor
 ```
 
-**Note**: If `GROQ_API_KEY` is not set, the backend will use safe fallback responses.
+**Note**: if the proxy cannot reach a provider, `/chat` returns `provider: litellm-error`; the backend never
+falls back to calling a provider directly.
 
 ### 3. Start All Services
 
 ```bash
-docker compose up --build
+docker compose up -d                         # infra: Jaeger, Postgres, LiteLLM proxy
+docker compose --profile full up --build -d  # also runs the backend container
 ```
 
 This starts:
-- **Frontend**: http://localhost:5173
-- **Backend**: http://localhost:8000
+- **LiteLLM proxy**: http://localhost:4000 (admin UI at `/ui`, master key `sk-local-dev-master-key` by default)
+- **Backend** (with `--profile full`): http://localhost:8000
 - **Jaeger UI**: http://localhost:16686
+
+The frontend dev server is started separately with `npm run dev` (http://localhost:5173).
 
 ### 4. Access the Application
 
@@ -114,8 +119,8 @@ For developing features, run services locally without Docker.
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/josephstephenrajkumar/responsible-ai-chat-agent.git
-cd responsible-ai-chat-agent
+git clone https://github.com/josephstephenrajkumar/RESPONSIBLE-AI-ENTERPRISEREADY.git
+cd RESPONSIBLE-AI-ENTERPRISEREADY
 ```
 
 ### 2. Start Jaeger (Observability)
@@ -204,9 +209,17 @@ Create or edit `backend/.env`:
 # Project
 PROJECT_NAME=Responsible AI Chat Agent
 
-# LLM Provider (Groq)
+# LLM egress: every model call goes through the LiteLLM proxy
+LLM_GATEWAY_MODE=proxy
+LITELLM_PROXY_URL=http://localhost:4000
+LITELLM_API_KEY=sk-local-dev-master-key
+LLM_DEFAULT_MODEL=openai/gpt-oss-120b      # must exist in litellm/config.yaml
+LLM_JUDGE_MODEL=judge-fast                 # cheaper model group for Ragas/TruLens judges
+FINOPS_MONTHLY_BUDGET_USD=25
+
+# Provider key (consumed by the LiteLLM container via docker compose)
 GROQ_API_KEY=your_api_key_here
-GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_MODEL=openai/gpt-oss-120b
 GROQ_API_URL=https://api.groq.com/openai/v1
 
 # Database
@@ -506,20 +519,20 @@ docker compose restart jaeger
 
 ---
 
-### Issue: GROQ_API_KEY not working
+### Issue: `/chat` returns `provider: litellm-error`
 
-**Problem**: Backend returns `groq-error` provider status
+**Problem**: the backend could not get an answer from the LiteLLM proxy.
 
 **Solution**:
-1. Verify API key is valid at https://console.groq.com/keys
-2. Check key is set correctly in `backend/.env` (no extra spaces)
-3. Verify internet connectivity
-4. Check Groq API status: https://status.groq.com
+1. Is the proxy up? `curl http://localhost:4000/health/liveliness` and `curl http://localhost:8000/gateway/health`
+2. Does the proxy serve the configured model? `curl -H "Authorization: Bearer sk-local-dev-master-key" http://localhost:4000/v1/models`
+   — the Groq account must actually offer each model in `litellm/config.yaml` (`llama-3.x` are not available on every account)
+3. Is the provider key valid? `docker compose logs litellm | grep -i "invalid api key"`; restart the proxy after
+   changing `backend/.env`: `docker compose up -d --force-recreate litellm`
+4. Empty answers with `finish_reason=length`: GPT-OSS models reason before answering — raise `max_tokens`
+5. Check Groq status: https://status.groq.com
 
-```bash
-# Verify key is loaded
-grep GROQ_API_KEY backend/.env
-```
+The AIOps dashboard (admin → AIOps) shows the same information: proxy reachability, error classes and recent failures.
 
 ---
 
@@ -647,16 +660,18 @@ npm run build
 
 ```bash
 # Clone repository
-git clone https://github.com/josephstephenrajkumar/responsible-ai-chat-agent.git
-cd responsible-ai-chat-agent
+git clone https://github.com/josephstephenrajkumar/RESPONSIBLE-AI-ENTERPRISEREADY.git
+cd RESPONSIBLE-AI-ENTERPRISEREADY
 
 # Create production .env
 cat > backend/.env << 'EOF'
 PROJECT_NAME=Responsible AI Chat Agent
-GROQ_API_KEY=your_production_key
-GROQ_MODEL=llama-3.3-70b-versatile
-GROQ_API_URL=https://api.groq.com/openai/v1
-DATABASE_URL=postgresql://user:password@db.example.com/responsible_ai
+LLM_GATEWAY_MODE=proxy
+LITELLM_PROXY_URL=http://litellm.internal:4000
+LITELLM_API_KEY=<scoped LiteLLM virtual key>
+LLM_DEFAULT_MODEL=openai/gpt-oss-120b
+LLM_JUDGE_MODEL=judge-fast
+DATABASE_URL=postgresql+psycopg2://user:password@db.example.com/responsible_ai
 OTEL_SERVICE_NAME=responsible-ai-chat-agent-prod
 JAEGER_HOST=jaeger.example.com
 JAEGER_PORT=6831
@@ -707,10 +722,10 @@ spec:
             secretKeyRef:
               name: db-credentials
               key: url
-        - name: GROQ_API_KEY
+        - name: LITELLM_API_KEY          # provider keys live only in the LiteLLM proxy deployment
           valueFrom:
             secretKeyRef:
-              name: groq-credentials
+              name: litellm-gateway-key
               key: api-key
         resources:
           requests:

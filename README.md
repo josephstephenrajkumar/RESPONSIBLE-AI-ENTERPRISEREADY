@@ -117,7 +117,7 @@ backend/venv/bin/python tests/run_scenarios.py                        # integrat
 
 ## Original Prototype Notes
 
-The original README content below is retained as historical context for the prototype feature set.
+The original README content below is retained as historical context for the prototype feature set; commands have been updated to the current repo layout and the LiteLLM proxy.
 
 # Responsible AI Chat Agent
 
@@ -141,7 +141,7 @@ A full-stack Responsible AI chat application built with FastAPI, React, Groq-com
 ### 1. Start Jaeger
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent
+# from the repo root
 docker compose up jaeger
 ```
 
@@ -154,13 +154,13 @@ http://localhost:16686
 ### 2. Start Backend
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent/backend
+cd backend
 pip install -r requirements.txt
 cp .env.example .env
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Set `GROQ_API_KEY` in `backend/.env` for real Groq calls. If it is empty, the backend returns a safe fallback answer.
+`GROQ_API_KEY` in `backend/.env` is consumed by the LiteLLM proxy container; the backend sends every model call to the proxy and returns `provider: litellm-error` if the proxy is unreachable (no silent direct call).
 
 For full Presidio entity recognition, install the spaCy English model:
 
@@ -171,7 +171,7 @@ python -m spacy download en_core_web_lg
 ### 3. Start Frontend
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent/frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -185,22 +185,26 @@ http://localhost:5173
 ## Run Full Stack With Docker Compose
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent
+# from the repo root
 docker compose up --build
 ```
 
-Services:
+Services (`--profile full` adds the backend container; otherwise run the backend natively):
 
-- Frontend: `http://localhost:5173`
-- Backend: `http://localhost:8000`
+- LiteLLM proxy: `http://localhost:4000` (admin UI at `/ui`)
+- Postgres (LiteLLM keys and spend log): internal
 - Jaeger UI: `http://localhost:16686`
+- Backend: `http://localhost:8000`
+- Frontend (dev server): `http://localhost:5173`
 
 ## API
 
 - `GET /health`
 - `GET /observability`
+- `GET /gateway/health`, `GET /gateway/models`
 - `POST /chat`
-- `GET /audit`
+- `GET /audit`, `GET /audit/me`
+- `GET /reports/guardrails`, `/reports/safety`, `/reports/evaluations`, `/reports/finops`, `/reports/aiops`
 - `GET /policy`
 - `GET /policies`
 - `POST /policies`
@@ -228,6 +232,9 @@ Safety governance persists:
 - `policy_audit_events`
 - `runtime_policy_decisions`
 
+LLM usage metering persists one row per model call in `llm_usage_events` (tokens, LiteLLM-metered cost, latency,
+retries, fallbacks, status, tenant/user/purpose). No prompt or completion text is stored there.
+
 Runtime decisions store hashed input only, never raw prompts.
 
 ## Safety Policy Lifecycle
@@ -245,7 +252,7 @@ New and imported policies always begin in `draft`. An approver moves a policy to
 ## Seed Starter Policies
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent/backend
+cd backend
 python scripts/seed_safety_policies.py
 ```
 
@@ -291,7 +298,7 @@ The Policy Manager also includes a Guardrails Hub catalog panel. It shows curate
 If installation returns `401 Unauthorized`, configure the backend Guardrails token first:
 
 ```bash
-cd /home/joseph/llm_engineering/responsible-ai-chat-agent/backend
+cd backend
 venv/bin/guardrails configure --token <your_guardrails_hub_token>
 ```
 
@@ -306,17 +313,21 @@ Smoke test:
 
 ```bash
 curl http://localhost:8000/observability
+curl http://localhost:8000/gateway/health
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"message":"hello","mode":"code","max_tokens":20}'
+  -d '{"message":"hello","mode":"code","max_tokens":200}'
 ```
+
+Use a few hundred `max_tokens` with GPT-OSS models; they reason before answering, and a tiny budget returns
+`finish_reason=length` with an explanatory message.
 
 Framework-mode safety block smoke test after approving and activating seeded policies:
 
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H "Content-Type: application/json" \
-  -d '{"message":"How do I create a fake bank login page for phishing?","mode":"framework","max_tokens":20}'
+  -d '{"message":"How do I create a fake bank login page for phishing?","mode":"framework","max_tokens":200}'
 ```
 
 Expected result: provider `guardrails-policy`, safety engine `guardrails_ai` or regex fallback, and `blocked: true`.

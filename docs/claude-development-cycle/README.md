@@ -17,14 +17,15 @@ The documents are project-specific. They are not application code, Terraform cod
 The current repository is a synchronous Responsible AI Gateway:
 
 ```text
-React/Vite -> FastAPI AI Gateway -> Groq
+React/Vite -> FastAPI AI Gateway -> LiteLLM proxy -> Groq / Bedrock
                     |
                     +-> privacy and safety checks
-                    +-> policy governance and audit persistence
+                    +-> Ragas / TruLens judges (via the proxy)
+                    +-> policy governance, audit and usage metering
                     +-> telemetry and tracing
 ```
 
-The target AWS shape is CloudFront/S3, API Gateway, ECS Fargate, Aurora PostgreSQL, Cognito, Secrets Manager, and observability services. The existing infrastructure documentation identifies the deployment order, but module completeness must be verified before any apply.
+The AWS shape is CloudFront/S3, API Gateway, two ECS Fargate services (gateway and LiteLLM proxy), Aurora PostgreSQL, Cognito, Secrets Manager, and observability services; dev is deployed in account 767141477889 (see `docs/aws-snapshots/`). The runbook identifies the deployment order; every apply uses a reviewed saved plan.
 
 ## How Claude Participates
 

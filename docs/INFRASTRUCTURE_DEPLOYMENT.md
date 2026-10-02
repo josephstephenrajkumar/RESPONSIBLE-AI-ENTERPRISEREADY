@@ -1,113 +1,87 @@
 # Infrastructure Deployment Guide
 
-## Overview
-
-This guide provides step-by-step instructions for deploying the Responsible AI Enterprise Ready infrastructure to AWS using Terragrunt.
+Step-by-step instructions for provisioning the Responsible AI Enterprise Ready infrastructure with Terragrunt.
+The detailed, account-specific flow is [AWS_DEV_DEPLOYMENT_RUNBOOK.md](./AWS_DEV_DEPLOYMENT_RUNBOOK.md).
 
 ## Prerequisites
 
-### Required Tools
-
 ```bash
-# Install Terragrunt
-brew install terragrunt
-
-# Install Terraform (AWS provider)
-brew install terraform
-
-# Install AWS CLI
-pip install awscli
-
-# Configure AWS credentials
-aws configure
+brew install terraform terragrunt awscli     # terraform >= 1.5, terragrunt 1.x
+aws configure --profile <profile>            # or SSO
 ```
 
-### AWS Account Setup
+The credentials must resolve to the target account (`aws sts get-caller-identity`). The live configuration in
+`infra/live/dev` is bound to one account through `aws_account_id` in `infra/live/dev/terragrunt.hcl`, the Cognito
+`domain_prefix`, and the CloudFront origins; retarget those values before deploying to another account.
 
-1. Active AWS account with sufficient permissions for:
-   - EC2, ECS, ECR, RDS (Aurora)
-   - API Gateway, Cognito, S3, CloudFront
-   - IAM, VPC, Security Groups
-   - Secrets Manager, CloudWatch, X-Ray
-   - DynamoDB (for Terraform state locking)
+Required permissions: VPC/EC2, ECS, ECR, RDS (Aurora), API Gateway, Cognito, S3, CloudFront, IAM, Secrets Manager,
+CloudWatch, X-Ray, DynamoDB (state locking).
+
+## Modules
+
+| Module | Resources |
+|---|---|
+| `network` | VPC, public/private/database subnets, route tables, IGW, NAT gateway |
+| `secrets` | Secrets Manager secrets (provider key, LiteLLM master/gateway keys, DB password) |
+| `cognito` | User pool, app client, hosted-UI domain, groups (`admin`, `policy-manager`, `guardrails-admin`, `finops`, `aiops`) |
+| `aurora-postgres` | Aurora PostgreSQL Serverless v2 cluster and instance |
+| `ecr` | Backend image repository |
+| `ecs-litellm-proxy` | LiteLLM model gateway: S3 config bucket, internal ALB, Fargate service, IAM, alarms |
+| `ecs-ai-gateway` | FastAPI policy-enforcement gateway: internal ALB, Fargate service, IAM |
+| `api-gateway` | HTTP API with VPC link to the gateway ALB, CORS |
+| `frontend-s3-cloudfront` | Private S3 bucket, OAC, CloudFront distribution |
+| `observability` | CloudWatch alarm and log metric filter for the gateway |
 
 ## Deployment Steps
 
-### Step 1: Initialize Infrastructure
+### Step 1: Bootstrap remote state (once per account)
 
 ```bash
-chmod +x deploy.sh
-
-# Initialize all modules (creates S3 backend and DynamoDB lock table)
-./deploy.sh init
-
-# Or initialize specific module
-./deploy.sh init network
+(cd infra/live/dev/network && terragrunt --non-interactive backend bootstrap)
 ```
 
-### Step 2: Plan Deployment
+Terragrunt 1.x does not create the state bucket or lock table during `plan`.
+
+### Step 2: Plan, review, apply each module
 
 ```bash
-# Review planned changes
-./deploy.sh plan
-
-# Or plan specific module
-./deploy.sh plan network
+cd infra/live/dev/<module>
+terragrunt --non-interactive plan -out=/tmp/<module>.tfplan
+terragrunt --non-interactive show /tmp/<module>.tfplan | grep -E "will be|Plan:"
+terragrunt --non-interactive apply /tmp/<module>.tfplan
 ```
 
-### Step 3: Apply Infrastructure
-
-```bash
-# Apply all modules (will prompt for confirmation)
-./deploy.sh apply
-
-# Or apply with auto-approval
-./deploy.sh apply --auto-approve
-
-# Or apply specific module
-./deploy.sh apply network
-```
-
-**Expected time**: 20-30 minutes for complete deployment
+`./deploy.sh plan|apply [module]` wraps the same commands in dependency order, but `apply` uses `-auto-approve`;
+reserve it for fresh, additive environments you have already planned.
 
 ## Deployment Order
 
-Resources are deployed in the following order to handle dependencies:
+1. `network`
+2. `secrets` — then store the provider key and the gateway's LiteLLM key
+3. `cognito`
+4. `aurora-postgres`
+5. `ecr` — then build (`--platform linux/amd64`), push and pin the backend image tag
+6. `ecs-litellm-proxy`
+7. `ecs-ai-gateway`
+8. `api-gateway`
+9. `frontend-s3-cloudfront` — then build/upload the frontend and add the CloudFront origin to `cognito`, `api-gateway`, `ecs-ai-gateway`
+10. `observability`
 
-1. **Network**: VPC, subnets, security groups, NAT Gateway
-2. **Secrets**: AWS Secrets Manager for API keys
-3. **Cognito**: User authentication and JWT validation
-4. **Aurora PostgreSQL**: Database for audit logs and policies
-5. **ECR**: Docker container registry
-6. **ECS Fargate**: AI Gateway compute service
-7. **API Gateway**: Public HTTPS endpoint
-8. **Frontend S3 + CloudFront**: React application hosting
-9. **Observability**: CloudWatch, X-Ray monitoring
+Expected time: 45–60 minutes end to end (Aurora ~6 min, CloudFront ~5 min, image build/push depends on the machine).
 
 ## Verifying Deployment
 
 ```bash
-# List created resources
-aws ec2 describe-vpcs --filters "Name=tag:Project,Values=responsible-ai"
-aws ecs describe-clusters
-aws ecr describe-repositories
-aws apigatewayv2 get-apis
-
-# Test API endpoint
-API_ENDPOINT=$(aws apigatewayv2 get-apis \
-  --query "Items[?Name=='responsible-ai-api'].ApiEndpoint" \
-  --output text)
-curl -X GET "${API_ENDPOINT}/health"
+aws ec2 describe-vpcs --filters "Name=tag:Project,Values=responsible-ai" --query "Vpcs[*].[VpcId,CidrBlock]" --output table
+aws ecs list-services --cluster responsible-ai-dev-cluster
+aws ecs list-services --cluster responsible-ai-dev-litellm-cluster
+API=$(cd infra/live/dev/api-gateway && terragrunt output -raw api_endpoint)
+curl -s "$API/health"
 ```
+
+Authenticated checks (`/gateway/health`, dashboards) are in the runbook §15.
 
 ## Cleanup
 
-```bash
-# Destroy all resources (WARNING: This is irreversible)
-./deploy.sh destroy
-
-# Or destroy with auto-approval
-./deploy.sh destroy --auto-approve
-```
-
-For detailed information, see the documentation files in the `docs/` folder.
+Destroy in reverse order (runbook §17). Aurora, the NAT gateway, the two Fargate services and the two internal ALBs
+incur cost while idle.
