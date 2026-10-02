@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { clearAuthToken, fetchAuthConfig, fetchMe, getAuthToken, setAuthToken } from '../api'
+import { clearAuthToken, fetchAuthConfig, fetchMe, getAuthToken, onSessionExpired, setAuthToken, setRefreshToken, tokenExpiresInSeconds } from '../api'
 
 function randomString() {
   const bytes = new Uint8Array(32)
@@ -86,6 +86,7 @@ export default function AuthStatus({ onUserChange }) {
           throw new Error(tokenPayload.error_description || tokenPayload.error || 'Login failed')
         }
         setAuthToken(tokenPayload.id_token || tokenPayload.access_token)
+        setRefreshToken(tokenPayload.refresh_token)
         window.sessionStorage.removeItem('cognito_login_state')
         window.sessionStorage.removeItem('cognito_pkce_verifier')
         cleanCallbackUrl()
@@ -95,6 +96,14 @@ export default function AuthStatus({ onUserChange }) {
     }
 
     initialize().catch(error => setStatus(error.message))
+    // Expired session (refresh failed or no refresh token): drop the stale
+    // token so every screen stops erroring and the Login button comes back.
+    return onSessionExpired((event) => {
+      clearAuthToken()
+      setUser(null)
+      onUserChange?.(null)
+      setStatus(event.detail?.reason || 'Session expired. Please sign in again.')
+    })
   }, [])
 
   const login = async () => {
@@ -136,7 +145,7 @@ export default function AuthStatus({ onUserChange }) {
     <div className="auth-status">
       <div>
         <strong>{user?.email || user?.username || 'Guest'}</strong>
-        <span>{status || (user?.permissions?.manage_policies ? 'Policy manager' : 'Signed in')}</span>
+        <span>{status || (user?.permissions?.manage_models ? 'Administrator' : user?.permissions?.manage_policies ? 'Policy manager' : 'Signed in')}{!status && user && tokenExpiresInSeconds() !== null && tokenExpiresInSeconds() < 300 ? ' · session refreshing' : ''}</span>
       </div>
       {user ? (
         <button type="button" className="ghost" onClick={logout}>Logout</button>

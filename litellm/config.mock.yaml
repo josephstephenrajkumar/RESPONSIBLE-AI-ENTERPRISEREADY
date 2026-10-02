@@ -81,22 +81,15 @@ model_list:
       input_cost_per_token: 0.00000059
       output_cost_per_token: 0.00000079
 
-router_settings:
-  num_retries: 2
-  timeout: 30
-  allowed_fails: 3
-  cooldown_time: 30
-  routing_strategy: simple-shuffle
-  fallbacks:
-    - llama-3.3-70b-versatile: [llama-3.1-8b-instant]
-    - openai/gpt-oss-120b: [openai/gpt-oss-20b]
-    - chat-default: [judge-fast]
-    - mock-fail: [llama-3.1-8b-instant]
+# router_settings (retries, timeout, cooldown, fallbacks) are NOT pinned here on
+# purpose: LiteLLM refuses runtime changes to keys set in this file. They are seeded
+# from litellm/runtime_defaults.json by the gateway and managed in the Proxy Manager.
 
 litellm_settings:
-  drop_params: true
+  # Pinned (platform-owned): metering headers and the OpenTelemetry callback.
+  # drop_params / request_timeout / success_callback / cache live in the proxy
+  # database (runtime_defaults.json + Proxy Manager) so administrators can change them.
   set_verbose: false
-  request_timeout: 30
   return_response_headers: true
   callbacks: ["otel"]
 

@@ -22,6 +22,7 @@ os.environ['GROQ_API_KEY'] = ''  # the application tier must not need a provider
 import httpx  # noqa: E402
 
 from app import database  # noqa: E402
+from app.config import Settings  # noqa: E402
 from app.llm_client import (  # noqa: E402
     LLMGatewayClient,
     bind_request_context,
@@ -59,7 +60,18 @@ class LLMGatewayClientTests(unittest.TestCase):
         with database.SessionLocal() as session:
             session.query(database.LLMUsageEventRecord).delete()
             session.commit()
+        # Settings is loaded once per process; pin what this suite needs regardless of
+        # which test module imported it first.
+        self._saved = {k: getattr(Settings, k) for k in ('LLM_GATEWAY_MODE', 'LITELLM_PROXY_URL', 'LITELLM_API_KEY', 'GROQ_API_KEY')}
+        Settings.LLM_GATEWAY_MODE = 'proxy'
+        Settings.LITELLM_PROXY_URL = 'http://litellm.test'
+        Settings.LITELLM_API_KEY = 'sk-test-virtual-key'
+        Settings.GROQ_API_KEY = ''
         self.client = LLMGatewayClient()
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            setattr(Settings, k, v)
 
     def _install_transport(self, handler):
         self.client._async_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))

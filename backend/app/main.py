@@ -58,6 +58,7 @@ from app.schemas import (
 from app.llm_client import bind_request_context, llm_client, reset_request_context
 from app import gateway_settings
 from app.litellm_admin import LiteLLMAdminError, litellm_admin
+from app import litellm_bootstrap
 from app.model_catalog import CatalogError, model_catalog
 from app.responsible_ai import (
     evaluate_privacy as code_privacy,
@@ -115,6 +116,9 @@ def startup_event():
     init_database()
     gateway_settings.ensure_table()
     reload_safety_policies()
+    if llm_client.mode == 'proxy':
+        import asyncio
+        asyncio.get_event_loop().create_task(litellm_bootstrap.startup_seed())
 
 
 @app.on_event('shutdown')
@@ -265,6 +269,33 @@ async def gateway_admin_overview(user: AuthenticatedUser = Depends(require_polic
     overview['settings'] = gateway_settings.effective_view()
     overview['providers'] = model_catalog.providers(None, await model_catalog.litellm_credentials())
     return overview
+
+
+@app.get('/gateway/admin/litellm-config')
+async def gateway_admin_litellm_config(user: AuthenticatedUser = Depends(require_policy_manager)):
+    """Merged view of the proxy's DB-managed runtime settings for the Routing & Settings screen."""
+    try:
+        return await litellm_bootstrap.current_config()
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+
+
+@app.post('/gateway/admin/litellm-keys/{token}/rotate')
+async def gateway_admin_litellm_key_rotate(token: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    """Rotate a LiteLLM virtual key (new key with the same scope; old key deleted). Shown once."""
+    try:
+        return await litellm_admin.rotate_key(token, _actor(user))
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+
+
+@app.post('/gateway/admin/litellm-config/seed')
+async def gateway_admin_litellm_config_seed(force: bool = False, user: AuthenticatedUser = Depends(require_model_admin)):
+    """Re-apply the shipped runtime defaults (force=true overwrites current values)."""
+    try:
+        return await litellm_bootstrap.ensure_runtime_defaults(_actor(user), force=force)
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
 
 
 @app.get('/gateway/settings')

@@ -52,7 +52,7 @@ ALLOWED_ROUTES = [
     ({'GET', 'PUT', 'PATCH', 'DELETE'}, r'^/guardrails/[^/]+(/info)?$'),
     ({'GET', 'POST'}, r'^/global/spend(/models|/keys|/teams|/provider|/tags|/logs|/report|/all_tag_names|/end_users)?$'),
     ({'GET'}, r'^/spend/(logs|keys|users|tags|logs/v2)$'),
-    ({'GET', 'POST'}, r'^/cache/(ping|settings|redis/info|settings/test|delete)$'),
+    ({'GET', 'POST'}, r'^/cache/(ping|settings|redis/info|settings/test|delete|flushall)$'),
     ({'GET'}, r'^/user/info$'),
 ]
 _COMPILED = [(methods, re.compile(pattern)) for methods, pattern in ALLOWED_ROUTES]
@@ -205,6 +205,26 @@ class LiteLLMAdminClient:
     # ------------------------------------------------------------------
     # Overview
     # ------------------------------------------------------------------
+    async def rotate_key(self, token: str, actor: str) -> Dict[str, Any]:
+        """Rotate a virtual key without the Enterprise regenerate endpoint.
+
+        Generates a new key carrying the old key's alias, team, budget, limits and
+        model scope, then deletes the old one. The new key is returned once.
+        """
+        info = await self.get('/key/info', key=token)
+        old = info.get('info') or info
+        carry = {k: old.get(k) for k in ('key_alias', 'team_id', 'user_id', 'max_budget', 'budget_duration', 'rpm_limit', 'tpm_limit', 'models', 'metadata', 'max_parallel_requests') if old.get(k) not in (None, [], {})}
+        alias = carry.pop('key_alias', None)
+        await self.post('/key/delete', {'keys': [token]}, actor)
+        payload = dict(carry)
+        if alias:
+            payload['key_alias'] = alias
+        payload.setdefault('metadata', {})
+        payload['metadata'] = {**(payload['metadata'] or {}), 'rotated_from': token[:12] + '…', 'rotated_by': actor}
+        created = await self.post('/key/generate', payload, actor)
+        record_admin_event('litellm_key_rotated', actor, {'key_alias': alias, 'old_token': token[:12] + '…', 'team_id': carry.get('team_id')})
+        return created
+
     async def overview(self) -> Dict[str, Any]:
         readiness = await self.safe_get('/health/readiness')
         models = await self.safe_get('/model/info')

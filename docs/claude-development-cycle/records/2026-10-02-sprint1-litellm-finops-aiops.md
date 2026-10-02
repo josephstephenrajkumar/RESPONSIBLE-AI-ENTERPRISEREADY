@@ -115,3 +115,11 @@ Terraform. Design: [docs/LITELLM_PROXY_MANAGER.md](../../LITELLM_PROXY_MANAGER.m
 | Local: settings, provider disable → chat 409, credential round-trip, teams/keys, MCP (3 tools), guardrails, config rule, spend, denied route, redacted audit | pass |
 | AWS: gateway `7d16fb5` (task def :5) from a reviewed plan; frontend with the Proxy Manager tab uploaded | pass |
 | AWS smoke through API Gateway (temporary admin, deleted) | all checks pass; MCP registration first failed with `400 Server name cannot contain '-'` — a LiteLLM naming rule now enforced in the form and documented |
+
+## Addendum — Proxy Manager completeness and session refresh (same day)
+
+Trigger: the Routing & Settings screen was read-only ("see config.yaml") and the session expired after an hour.
+Changes: `litellm/config.yaml` reduced to a bootstrap file; runtime settings seeded from
+`backend/app/litellm_runtime_defaults.json` and managed in the proxy database; every Proxy Manager section gained
+define/edit controls; Cognito refresh-token handling in the frontend. Verified locally (seed → persist across proxy
+restart → callback enable/remove → completions OK); unit tests 32 total. AWS deployment recorded below.

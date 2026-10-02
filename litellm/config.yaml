@@ -56,36 +56,17 @@ model_list:
   #     model: bedrock/anthropic.claude-3-5-haiku-20241022-v1:0
   #     aws_region_name: ap-southeast-1
 
-router_settings:
-  # Retries happen in the proxy, once, with jitter; the application does not
-  # retry so a provider incident does not multiply load.
-  num_retries: 2
-  timeout: 30
-  allowed_fails: 3
-  cooldown_time: 30
-  routing_strategy: simple-shuffle
-  # Degrade to the small model when the large one is unavailable rather than
-  # failing the chat. The AI Gateway records fallbacks from the response header
-  # (x-litellm-attempted-fallbacks) so the AIOps dashboard shows when this fires.
-  fallbacks:
-    - openai/gpt-oss-120b: [openai/gpt-oss-20b]
-    - chat-default: [judge-fast]
+# router_settings (retries, timeout, cooldown, fallbacks) are NOT pinned here on
+# purpose: LiteLLM refuses runtime changes to keys set in this file. They are seeded
+# from litellm/runtime_defaults.json by the gateway and managed in the Proxy Manager.
 
 litellm_settings:
-  drop_params: true
+  # Pinned (platform-owned): metering headers and the OpenTelemetry callback.
+  # drop_params / request_timeout / success_callback / cache live in the proxy
+  # database (runtime_defaults.json + Proxy Manager) so administrators can change them.
   set_verbose: false
-  request_timeout: 30
-  # Return cost / model / retry metadata in response headers; the AI Gateway
-  # reads these for metering.
   return_response_headers: true
-  # Trace every proxied call into the same Jaeger/OTel collector the gateway
-  # uses, with W3C traceparent propagation from the gateway.
   callbacks: ["otel"]
-  # Enable when Langfuse keys are present in the proxy environment. Prefer
-  # emitting Langfuse traces from the proxy rather than the application, so
-  # there is exactly one generation record per model call.
-  # success_callback: ["langfuse"]
-  # failure_callback: ["langfuse"]
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

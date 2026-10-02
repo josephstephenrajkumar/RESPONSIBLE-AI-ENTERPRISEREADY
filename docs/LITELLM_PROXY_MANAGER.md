@@ -30,6 +30,36 @@ provider reference it by name (`litellm_credential_name`), so the key never appe
 Disabling a provider hides its models from the chat selector and makes `/chat` answer `409 Provider 'x' has been
 disabled by an administrator`. Disabling a single model works the same way (Models → ✓/✕ buttons).
 
+## Configuration architecture: bootstrap file vs. runtime settings
+
+LiteLLM refuses runtime changes to any key pinned in its config file. So that administrators can actually *define*
+settings, the split is:
+
+| Layer | Contains | Owned by | Changed how |
+|---|---|---|---|
+| `litellm/config.yaml` (bootstrap) | `model_list` seed, `master_key`, `database_url`, `store_model_in_db`, `return_response_headers`, platform `callbacks: [otel]` | repository (Git review) | edit → plan/apply `ecs-litellm-proxy` (S3) → force new deployment |
+| LiteLLM database (runtime) | `router_settings` (retries, timeout, cooldown, fallbacks, strategy), `litellm_settings` (`drop_params`, `request_timeout`, success/failure callbacks + their env vars), `general_settings` fields, cache settings, runtime-added models, credentials, keys, teams, MCP servers, guardrails | administrators via the Proxy Manager | immediately, persisted, audited |
+| `backend/app/litellm_runtime_defaults.json` | the baseline router/litellm settings | repository | applied once by the gateway at start-up when the proxy has no router settings; *Re-apply shipped defaults* overwrites on demand |
+
+Verified locally: after restarting the proxy with the bootstrap-only file, the gateway's seed produced retries 2,
+timeout 30, cooldown 30 and the fallback chain; a further restart kept them (loaded from the database); a Langfuse
+callback was enabled with `environment_variables` and removed again; completions kept working.
+
+## What an administrator can define, per section
+
+| Section | Define / edit |
+|---|---|
+| Providers | store, replace, remove a provider key (LiteLLM encrypted store); enable / disable provider |
+| Models | add from discovery, test, remove; **edit** alias, prices, extra `litellm_params` (e.g. `reasoning_effort`), description; enable / disable; default chat model, judge model, **chat allowlist** |
+| Keys & Teams | create / **edit** / delete teams (budget, duration, RPM/TPM, models); generate / **edit** / **rotate** (gateway-side: new key with the same scope, old key deleted — LiteLLM's own `/key/{key}/regenerate` is Enterprise-only) / block / delete keys |
+| MCP Servers | register / **edit** (URL, transport, auth, allowed tools) / inspect tools and health / remove |
+| Guardrails | add (type, mode, params), **toggle default-on**, **test with sample text**, delete |
+| Routing & Settings | **router settings form** (retries, timeout, allowed fails, cooldown, retry-after, strategy, fallbacks), **LiteLLM settings** (`drop_params`, `request_timeout`), **callbacks** (enable any of LiteLLM's callbacks with their env vars, remove), **cache** (Redis connection form from LiteLLM's own field list, test, save, ping, flush), **general settings** (generated form from `/config/list`, saved per field), re-apply shipped defaults, read-only bootstrap file |
+| Spend | read-only (LiteLLM's spend log) |
+
+Session handling: the frontend now keeps the Cognito refresh token, refreshes the ID token before expiry and on a
+401, and shows "Session expired — sign in again" instead of failing every call with *Invalid authentication token*.
+
 ## Where provider credentials are stored
 
 | Card shows | Storage | Path to the proxy | Rotation / audit |
@@ -130,9 +160,9 @@ callbacks (`/get/config/callbacks`), spend reports.
 - The gateway currently manages the proxy with the LiteLLM **master key** in dev (TD-25). Generate a scoped key in
   *Keys & Teams*, store it in `responsible-ai-dev/litellm_gateway_key`, and point `LITELLM_ADMIN_API_KEY` at a key with
   admin rights before production.
-- `POST /config/update` cannot change keys that are pinned in `litellm/config.yaml` (LiteLLM returns 400). Routing
-  (`model_list`, `router_settings`, the OTel callback) stays repository-managed: edit the file, plan/apply
-  `ecs-litellm-proxy`, force a new deployment.
+- `POST /config/update` cannot change keys pinned in `litellm/config.yaml` (LiteLLM returns 400); that is why the
+  file is bootstrap-only and router/litellm/cache/general settings live in the proxy database (see *Configuration
+  architecture*).
 - Response caching requires Redis (ElastiCache); the Cache panel is informational until Sprint 5.
 - MCP server names must be `[A-Za-z0-9_]` only — LiteLLM uses the name as the tool prefix (`<server>-<tool>`) and
   rejects hyphens with `400 Server name cannot contain '-'`. The form enforces this.

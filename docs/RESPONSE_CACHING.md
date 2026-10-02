@@ -36,9 +36,9 @@ litellm_settings:
     namespace: "responsible-ai-dev"  # keep environments apart on a shared cluster
 ```
 
-**B. Runtime, from the Proxy Manager (when `cache_params` is *not* pinned in the file):** Routing & Settings → Cache →
-set Redis type/host/port/password/TLS/TTL (`POST /cache/settings`), test (`POST /cache/settings/test`), then verify with
-`/cache/ping`. LiteLLM stores these in its database (`store_model_in_db: true` is already on) and applies them without a
+**B. Runtime, from the Proxy Manager (the default — cache settings are not pinned in the file):** Routing & Settings →
+Response cache → fill Redis type/host/port/password/TLS/namespace/TTL (fields come from LiteLLM's `/cache/settings`),
+**Test connection**, **Save**, **Ping**; **Flush** clears it. LiteLLM stores these in its database (`store_model_in_db: true` is already on) and applies them without a
 restart. Use this for dev experiments; promote to config.yaml for prod so the setting is reviewed in Git.
 
 Either way the gateway needs no change: cache hits come back from the proxy like any response, with
