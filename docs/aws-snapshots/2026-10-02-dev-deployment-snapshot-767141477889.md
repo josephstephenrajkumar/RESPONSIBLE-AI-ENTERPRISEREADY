@@ -49,7 +49,7 @@ deployment does not touch.
 ## ECS
 
 - LiteLLM proxy: cluster `responsible-ai-dev-litellm-cluster`, service `responsible-ai-dev-litellm-proxy`
-  (0.5 vCPU / 1 GB, image `ghcr.io/berriai/litellm:main-stable`), internal ALB `responsible-ai-dev-litellm`,
+  (0.5 vCPU / 1 GB, image `ghcr.io/berriai/litellm:main-stable`, `STORE_MODEL_IN_DB=True`), internal ALB `responsible-ai-dev-litellm`,
   config from S3 bucket `responsible-ai-dev-litellm-config-767141477889` key `litellm/config.yaml`,
   log group `/ecs/responsible-ai-dev-litellm-proxy`
 - AI Gateway: cluster `responsible-ai-dev-cluster`, service `responsible-ai-dev-ai-gateway`
@@ -70,6 +70,11 @@ deployment does not touch.
 
 - CloudWatch alarms: gateway ECS CPU > 80 %, gateway log error filter, LiteLLM ALB target 5xx, LiteLLM unhealthy hosts
 - Traces: ADOT sidecars on both services → X-Ray
+
+## Runtime-added models (LiteLLM database, via the admin catalogue)
+
+- `nova-micro` → `bedrock/apac.amazon.nova-micro-v1:0` (ap-southeast-1), added 2026-10-02 and verified in chat.
+- Anthropic-on-Bedrock models are blocked until the account's Anthropic use-case form is submitted (see MODEL_CATALOG.md).
 
 ## Models (LiteLLM `model_list`)
 

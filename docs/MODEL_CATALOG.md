@@ -89,6 +89,28 @@ Locally: put the key in `backend/.env` (compose passes it to the LiteLLM contain
 `LLM_PROVIDERS_ENABLED=groq,anthropic` for the backend. Bedrock locally needs AWS credentials inside the proxy
 container (not configured by default).
 
+## Amazon Bedrock specifics
+
+- Use **inference-profile ids** (`apac.*`, `global.*`) for most models in `ap-southeast-1`; base ids such as
+  `amazon.nova-micro-v1:0` are rejected with "on-demand throughput isn't supported". The discovery list only shows
+  ids that are invokable in the region.
+- **Anthropic models on Bedrock need a one-time, account-level "use case details" form** (Bedrock console → Model
+  catalog → an Anthropic model → *Submit use case details*). Until it is submitted, every Claude call returns
+  `404 Model use case details have not been submitted for this account`; the admin **Test** button shows that message.
+  Amazon Nova (and most non-Anthropic models) need no form. After submitting, wait ~15 minutes and add the model again.
+- Pricing: LiteLLM's price map covers the `apac.*` Nova and Claude 4.x/Sonnet ids; models without a price show
+  `n/a` and are metered as `cost_source=estimated`/`unknown` until the price map includes them.
+- After repeated failures LiteLLM cools a deployment down for `cooldown_time` (30 s) and answers
+  "No deployments available for selected model"; this is the router protecting the provider, not a catalogue error.
+
+## Verified (dev, 2026-10-02)
+
+- Groq: `qwen/qwen3.8-27b` added, tested (`OK`, 261 ms, $0.000023) and removed locally; config.yaml models are protected (HTTP 409 on delete).
+- Bedrock: discovery returned 8 `apac.*` models with prices; `apac.amazon.nova-micro-v1:0` added as `nova-micro`,
+  tested (764 ms, $0.00000056, metered by LiteLLM) and used for chat through the gateway; `claude-3-haiku` added
+  but blocked by the Anthropic use-case gate above, then removed to keep the selector clean.
+- Chat selector groups models by provider (`bedrock`, `groq`); FinOps shows `catalog_test` as its own purpose.
+
 ## Governance notes
 
 - Adding a model is a cost decision: pricing is shown from LiteLLM's price map before adding, and every call is

@@ -334,6 +334,7 @@ modules — see [MODEL_CATALOG.md](MODEL_CATALOG.md).
 | `S3 bucket ... does not exist` during `plan` | Run `terragrunt backend bootstrap` once (section 5). |
 | Proxy returns 401/404 from Groq for a model | The Groq account does not serve that model (e.g. `llama-3.x`). Use the account's model list; LiteLLM retries and falls back before surfacing the provider error. |
 | Framework-mode answer says the model returned no text (`finish_reason=length`) | GPT-OSS spends tokens on hidden reasoning; raise `max_tokens` (the UI default is 800). |
+| Bedrock Claude model returns `404 Model use case details have not been submitted` | One-time Anthropic use-case form in the Bedrock console (account level); Nova models work without it. See [MODEL_CATALOG.md](MODEL_CATALOG.md). |
 | Preflight `400 Disallowed CORS origin` | Gateway task not yet redeployed with the CloudFront origin (section 13). |
 | `repository ... does not exist` on `docker push :latest` | zsh parsed `$ECR_URL:latest` as `${ECR_URL:l}`; quote as `"${ECR_URL}:latest"`. |
 | `Using terragrunt.hcl as the root ... anti-pattern` warning | Harmless with Terragrunt 1.1; rename to `root.hcl` when convenient. |

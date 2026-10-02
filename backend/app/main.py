@@ -436,7 +436,20 @@ async def _chat(request: ChatRequest, user: AuthenticatedUser, gateway_request_i
             )
             response['empty_answer'] = True
 
-        if request.mode == 'framework':
+        if request.mode == 'framework' and response.get('status') not in (None, 'success', 'blocked'):
+            # The model call failed: the "answer" is a gateway error message. Running
+            # privacy redaction, safety validation and two judge LLM calls on it would
+            # cost money and produce meaningless scores, so record the skip instead.
+            skipped = {'evaluator_engine': 'skipped_llm_error', 'recommendation': 'Model call failed; evaluation skipped'}
+            privacy_result.update({'output_findings_count': 0, 'output_redacted': False, 'output_skipped': 'llm_error'})
+            safety_result.update({'output_blocked': False, 'output_violations': [], 'output_policy_violations': [], 'output_skipped': 'llm_error'})
+            fairness_result = {'fairness_risk': 'unknown', 'fairness_score': None, **skipped}
+            explainability_result = {'explanation_provided': False, 'explainability_score': None, **skipped}
+            verifiability_result = {'verifiability_score': None, **skipped}
+            transparency_result = {'transparency_level': 'partial', **skipped}
+            governance_result = {'governance_concern': 'medium', **skipped}
+            controllability_result = {'controllability_properties': ['mode', 'temperature', 'max_tokens'], **skipped}
+        elif request.mode == 'framework':
             with tracer.start_as_current_span('privacy_output_check') as output_privacy_span:
                 output_privacy_result = framework_privacy(answer)
                 if output_privacy_result.get('redacted'):

@@ -87,3 +87,18 @@ key for the gateway (TD-25); Guardrails Hub validators are not installed in the 
 - `GROQ_API_KEY` still present in `backend/.env` for the proxy container; the AIOps
   dashboard flags it if the backend process inherits it.
 - Ragas scenarios are `DEGRADED` in mock mode by design.
+
+## Addendum — multi-provider model catalogue (same day)
+
+Requirement: configure several providers in LiteLLM and consume any of their models from the admin screen
+(Groq, AWS Bedrock, Anthropic, …). Design and operation: [docs/MODEL_CATALOG.md](../../MODEL_CATALOG.md), ADR-12.
+
+| Check | Result |
+|---|---|
+| Unit tests (`backend/tests/test_model_catalog.py`) | 8 passed (18 total) |
+| Local: add Groq `qwen/qwen3.8-27b` → test → chat → remove; config models protected | pass |
+| AWS secrets (`litellm_salt_key`, placeholders) / proxy (`store_model_in_db`) / gateway (providers, Bedrock discovery IAM, admin key) | applied from reviewed plans; image `6cf5b8a` |
+| AWS: Bedrock discovery (8 `apac.*` models, priced), add `nova-micro`, test ($0.00000056, 764 ms), chat via Nova | pass |
+| AWS: `claude-3-haiku` on Bedrock | 404 from Bedrock — Anthropic use-case form not submitted for the account; documented; entry removed |
+| Chat selector grouped by provider; FinOps shows `catalog_test` purpose | pass |
+| Follow-up fix | framework mode no longer runs output checks/judges on a failed model call (`skipped_llm_error`) |
