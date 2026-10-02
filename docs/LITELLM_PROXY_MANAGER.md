@@ -77,7 +77,42 @@ Everything else in LiteLLM (218 management routes) is reachable through the same
 not cover it yet — see the allow-list in `backend/app/litellm_admin.py`. Inference routes are deliberately **not**
 allowed: model calls must go through `app.llm_client` so they are policy-checked and metered.
 
-## Governance built into the gateway layer
+## Capability discovery — how the UI knows what LiteLLM can do
+
+**How the current screens were built (engineering time, not runtime).** LiteLLM is self-describing: the proxy serves
+`GET /routes` (today 624 routes in 136 families, 218 of them management) and `GET /openapi.json` (request/response
+schemas). The eight Proxy Manager sections were derived from those two documents plus the LiteLLM source, and each
+section was hand-built against the schemas. The gateway's allow-list (`litellm_admin.ALLOWED_ROUTES`) and the provider
+registry (`model_catalog.PROVIDERS`) are therefore **static code**, and a new LiteLLM feature does not appear in the UI
+by itself.
+
+**What already adapts at runtime.** Inside each section, option lists come from the proxy, so they track LiteLLM
+upgrades without code changes: guardrail types and modes (`/guardrails/ui/add_guardrail_settings`), cache fields
+(`/cache/settings`), models and prices (`/model/info`, `/public/litellm_model_cost_map`), MCP tools (`/v1/mcp/tools`),
+callbacks (`/get/config/callbacks`), spend reports.
+
+**Target mechanism (roadmap Sprint 3): detect automatically, enable deliberately.**
+
+1. **Capability manifest.** On start-up and on demand the gateway reads `/routes` + `/openapi.json`, groups routes
+   into families (`model`, `key`, `team`, `v1/mcp`, `guardrails`, `config`, `cache`, `credentials`, `organization`,
+   `tag`, `access_group`, `auto_router`, `workflows`, `schedule`, …), and compares them with (a) the allow-list and
+   (b) the sections the UI covers. The result is stored with the LiteLLM build identifier and shown on the Overview as
+   *Covered / Allowed-but-uncurated / Not allowed (new)*. A change after a proxy upgrade produces an audit event and a
+   banner, so an upgrade of the `main-stable` image is noticed the same day.
+2. **Dynamic allow-list.** Administrators can enable a newly detected management family from that panel; the gateway
+   persists it in `gateway_settings` (`litellm.allowed_routes_extra`) and the passthrough honours it. Inference routes
+   remain permanently excluded (metering and policy must not be bypassed). This keeps a human decision between "LiteLLM
+   added X" and "our tenants can call X".
+3. **Schema-driven explorer.** For allowed routes without a curated screen, the UI renders a form from the OpenAPI
+   request schema (the same way the guardrail *params* box works today) so new capabilities are usable immediately;
+   curated screens follow when a capability earns one.
+4. **Dynamic provider registry.** `GET /public/providers/fields` returns every provider LiteLLM supports (158 today)
+   with display name, `litellm_provider` and credential fields (`api_key`, `api_base`, region, …). The registry moves
+   from code to this endpoint; our governance overlay (credential source, enabled flag, tenant scope) stays.
+5. **Version pinning.** Pin the proxy image to a release tag instead of the floating `main-stable`, so capability
+   diffs correspond to deliberate upgrades (TD-27).
+
+
 
 - **RBAC**: writes require `admin` or `model-admin`; reads are open to `policy-manager`, `finops`, `aiops` through the
   overview/catalogue endpoints. `/auth/me` exposes `permissions.manage_models`.
