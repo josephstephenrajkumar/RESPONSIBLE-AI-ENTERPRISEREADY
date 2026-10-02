@@ -227,3 +227,52 @@ export async function testCatalogModel(modelName) {
   const response = await fetch(`${API_BASE}/gateway/catalog/models/${modelName}/test`, { method: 'POST', headers: authHeaders() })
   return parseResponse(response)
 }
+
+// ---- Proxy Manager -----------------------------------------------------------
+export async function fetchProxyOverview() {
+  const response = await fetch(`${API_BASE}/gateway/admin/overview`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function fetchGatewaySettings() {
+  const response = await fetch(`${API_BASE}/gateway/settings`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function updateGatewaySetting(key, value) {
+  const response = await fetch(`${API_BASE}/gateway/settings`, { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ key, value }) })
+  return parseResponse(response)
+}
+
+export async function toggleProvider(provider, action) {
+  const response = await fetch(`${API_BASE}/gateway/catalog/providers/${encodeURIComponent(provider)}/${action}`, { method: 'POST', headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function storeProviderCredential(provider, apiKey, extra) {
+  const response = await fetch(`${API_BASE}/gateway/catalog/providers/${encodeURIComponent(provider)}/credential`, {
+    method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ api_key: apiKey, extra: extra || null })
+  })
+  return parseResponse(response)
+}
+
+export async function deleteProviderCredential(provider) {
+  const response = await fetch(`${API_BASE}/gateway/catalog/providers/${encodeURIComponent(provider)}/credential`, { method: 'DELETE', headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function toggleModel(modelName, action) {
+  const response = await fetch(`${API_BASE}/gateway/catalog/models/${modelName}/${action}`, { method: 'POST', headers: authHeaders() })
+  return parseResponse(response)
+}
+
+// Governed passthrough to LiteLLM's management API (allow-listed on the gateway).
+export async function litellmAdmin(method, path, body, params) {
+  const query = params ? `?${new URLSearchParams(params).toString()}` : ''
+  const response = await fetch(`${API_BASE}/gateway/admin/litellm/${path.replace(/^\//, '')}${query}`, {
+    method,
+    headers: body !== undefined ? jsonHeaders() : authHeaders(),
+    body: body !== undefined ? JSON.stringify(body) : undefined
+  })
+  return parseResponse(response)
+}

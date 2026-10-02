@@ -189,6 +189,14 @@ management API and adds a fixed provider registry, enablement driven by the cred
 model enablement, metered test calls and audit events. Bedrock models need no key (proxy task role). Details,
 endpoints and the enable-a-provider procedure are in [MODEL_CATALOG.md](MODEL_CATALOG.md).
 
+### 4.8 Proxy Manager (LiteLLM administration)
+
+Administrators manage the model gateway from the **Proxy Manager** tab: providers (enable/disable, credentials),
+models (catalogue, default/judge), teams and virtual keys with budgets, MCP servers, proxy-side guardrails, routing
+and spend. The gateway exposes a governed passthrough (`/gateway/admin/litellm/*`, allow-listed, audited) plus
+curated endpoints and a `gateway_settings` table for runtime overrides. Details in
+[LITELLM_PROXY_MANAGER.md](LITELLM_PROXY_MANAGER.md).
+
 ## 5. Key design decisions
 
 | ADR | Decision | Alternatives considered | Rationale |
@@ -203,6 +211,7 @@ endpoints and the enable-a-provider procedure are in [MODEL_CATALOG.md](MODEL_CA
 | ADR-08 | Proxy config distributed via **S3 object** loaded at task start. | Bake into image; Parameter Store. | Terraform-managed, diffable, no image rebuild; LiteLLM supports it natively. |
 | ADR-09 | **Postgres for LiteLLM** (dev: shared Aurora database; prod: separate DB/schema). | Run proxy stateless. | Virtual keys, team budgets and spend log need persistence. |
 | ADR-10 | Dashboard aggregation in the gateway over a bounded window (Python over ≤ 20 k rows). | Materialised views; CloudWatch Metrics. | Fast to ship, adequate for dev volumes; replaced by rollups/EMF in Sprint 2 (TD-07). |
+| ADR-13 | **Proxy Manager = governed passthrough + runtime settings.** One allow-listed gateway route forwards LiteLLM management calls with the admin key, audits writes with redaction; provider/model enablement and default/judge models live in a DB-backed `gateway_settings` table. Provider keys are stored in LiteLLM's encrypted credential store, never in the app. | Expose LiteLLM's own admin UI; rebuild every LiteLLM screen; keep enablement in Terraform. | Admins get the full LiteLLM capability set (keys, teams, MCP, guardrails, config, spend) behind Cognito RBAC without a second login or exposing the proxy; inference routes stay excluded so metering/policy cannot be bypassed. See [LITELLM_PROXY_MANAGER.md](LITELLM_PROXY_MANAGER.md). |
 | ADR-12 | **Admin model catalogue over LiteLLM's model-management API** (`/model/info`, `/model/new`, `/model/delete`, price map) with `store_model_in_db: true`; explicit models per enabled provider, no wildcard routes; new models reference `os.environ/<KEY>`. | Wildcard provider routes; editing `config.yaml` for every model; storing provider keys in the app. | Lets operators onboard any provider/model (Groq, Bedrock via IAM, Anthropic, OpenAI…) without an app release while keeping the credential boundary, the allowlist and budgets intact. See [MODEL_CATALOG.md](MODEL_CATALOG.md). |
 | ADR-11 | Offline **mock upstream + `config.mock.yaml`** for zero-spend verification and CI. | Test only against Groq. | Keeps CI deterministic and free; proves routing, headers, retries and fallbacks. |
 
@@ -236,6 +245,7 @@ endpoints and the enable-a-provider procedure are in [MODEL_CATALOG.md](MODEL_CA
 | `GET /gateway/health` | New. Live proxy check and configuration summary. |
 | `GET /gateway/models` | New. Models served by the proxy, filtered by the allowlist; `by_provider` grouping for the chat selector. |
 | `GET /gateway/catalog`, `GET /gateway/catalog/providers/{p}/available`, `POST /gateway/catalog/models`, `POST /gateway/catalog/models/{name}/test`, `DELETE /gateway/catalog/models/{id}` | New. Admin model catalogue over LiteLLM `/model/*` (roles `admin`, `model-admin`; browse for `policy-manager`). |
+| `POST /gateway/catalog/providers/{p}/enable|disable`, `POST/DELETE /gateway/catalog/providers/{p}/credential`, `POST /gateway/catalog/models/{name}/enable|disable`, `GET/PUT /gateway/settings`, `GET /gateway/admin/overview`, `ANY /gateway/admin/litellm/{path}` | New. Proxy Manager: runtime enablement, credentials in LiteLLM's store, default/judge overrides, governed passthrough to LiteLLM management routes. |
 | `GET /reports/finops?days=` | New. Requires `finops` or `admin`. |
 | `GET /reports/aiops?hours=` | New. Requires `aiops` or `admin`. |
 | `GET /policy` | `model` / `provider` now reflect live gateway settings; `llm_gateway` block added. |

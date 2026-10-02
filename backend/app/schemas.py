@@ -163,3 +163,18 @@ class CatalogModelCreate(BaseModel):
     model: str = Field(..., min_length=1)
     model_name: str | None = None
     description: str = ''
+
+
+class GatewaySettingUpdate(BaseModel):
+    key: str = Field(..., min_length=1)
+    value: object | None = None
+
+
+class ProviderCredentialRequest(BaseModel):
+    """Provider API key to store in LiteLLM's encrypted credential store.
+
+    The gateway forwards it to the proxy over the private network and never
+    persists or logs it; audit records carry the provider and actor only.
+    """
+    api_key: str = Field(..., min_length=8)
+    extra: dict | None = None

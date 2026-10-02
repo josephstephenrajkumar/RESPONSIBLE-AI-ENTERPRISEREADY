@@ -52,8 +52,12 @@ from app.schemas import (
     SafetyPolicyUpdate,
     UsageMetadata,
     CatalogModelCreate,
+    GatewaySettingUpdate,
+    ProviderCredentialRequest,
 )
 from app.llm_client import bind_request_context, llm_client, reset_request_context
+from app import gateway_settings
+from app.litellm_admin import LiteLLMAdminError, litellm_admin
 from app.model_catalog import CatalogError, model_catalog
 from app.responsible_ai import (
     evaluate_privacy as code_privacy,
@@ -109,6 +113,7 @@ def startup_event():
     setup_tracing(app)
     instrument_sqlalchemy(engine)
     init_database()
+    gateway_settings.ensure_table()
     reload_safety_policies()
 
 
@@ -116,6 +121,7 @@ def startup_event():
 async def shutdown_event():
     await llm_client.close()
     await model_catalog.close()
+    await litellm_admin.close()
 
 
 @app.get('/health')
@@ -136,17 +142,19 @@ async def gateway_models(user: AuthenticatedUser = Depends(get_current_user)):
         models = await llm_client.list_models()
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f'LLM gateway is not reachable: {exc}') from exc
-    if Settings.LLM_ALLOWED_MODELS:
-        models = [model for model in models if model in Settings.LLM_ALLOWED_MODELS]
+    allowed = gateway_settings.effective_allowed_models()
+    if allowed:
+        models = [model for model in models if model in allowed]
     grouped = {'by_provider': {}, 'details': []}
     if llm_client.mode == 'proxy':
         try:
-            grouped = await model_catalog.grouped_models(Settings.LLM_ALLOWED_MODELS or None)
+            grouped = await model_catalog.grouped_models(allowed or None)
+            models = [d['id'] for d in grouped['details']] or models
         except Exception:
             grouped = {'by_provider': {'unknown': models}, 'details': [{'id': m, 'provider': 'unknown'} for m in models]}
     return {
-        'default_model': llm_client.default_model,
-        'judge_model': llm_client.judge_model,
+        'default_model': gateway_settings.effective_default_model(),
+        'judge_model': gateway_settings.effective_judge_model(),
         'models': models,
         'by_provider': grouped['by_provider'],
         'details': grouped['details'],
@@ -226,6 +234,135 @@ async def gateway_catalog_test(model_name: str, user: AuthenticatedUser = Depend
         'error_type': result.get('error_type'),
         'http_status': result.get('http_status'),
     }
+
+
+# ---------------------------------------------------------------------------
+# Proxy Manager: providers, settings and governed access to LiteLLM management
+# ---------------------------------------------------------------------------
+def _actor(user: AuthenticatedUser) -> str:
+    return user.email or user.username or user.user_id
+
+
+def _admin_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, LiteLLMAdminError):
+        detail = exc.detail if isinstance(exc.detail, (str, dict, list)) else str(exc.detail)
+        return HTTPException(status_code=exc.status_code if 400 <= exc.status_code < 600 else 502, detail=detail)
+    if isinstance(exc, (CatalogError,)):
+        return HTTPException(status_code=exc.status_code, detail=exc.detail)
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, httpx.HTTPError):
+        return HTTPException(status_code=503, detail=f'LiteLLM proxy request failed: {exc}')
+    return HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get('/gateway/admin/overview')
+async def gateway_admin_overview(user: AuthenticatedUser = Depends(require_policy_manager)):
+    try:
+        overview = await litellm_admin.overview()
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+    overview['settings'] = gateway_settings.effective_view()
+    overview['providers'] = model_catalog.providers(None, await model_catalog.litellm_credentials())
+    return overview
+
+
+@app.get('/gateway/settings')
+async def gateway_settings_get(user: AuthenticatedUser = Depends(require_policy_manager)):
+    return gateway_settings.effective_view()
+
+
+@app.put('/gateway/settings')
+async def gateway_settings_put(request: GatewaySettingUpdate, user: AuthenticatedUser = Depends(require_model_admin)):
+    if request.key in ('chat.default_model', 'chat.judge_model') and request.value:
+        known = {row['model_name'] for row in await model_catalog.deployments()}
+        if request.value not in known:
+            raise HTTPException(status_code=400, detail=f'{request.value!r} is not a model served by the proxy')
+    try:
+        return gateway_settings.set_value(request.key, request.value, _actor(user))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post('/gateway/catalog/providers/{provider}/credential', status_code=201)
+async def gateway_provider_credential_add(provider: str, request: ProviderCredentialRequest,
+                                          user: AuthenticatedUser = Depends(require_model_admin)):
+    """Store a provider API key in LiteLLM's encrypted credential store (never in this service)."""
+    from app.model_catalog import PROVIDERS
+    spec = PROVIDERS.get(provider)
+    if not spec:
+        raise HTTPException(status_code=404, detail=f'Unknown provider {provider!r}')
+    if spec['credential']['type'] != 'api_key':
+        raise HTTPException(status_code=409, detail=f"{spec['display_name']} uses IAM; no API key is needed")
+    try:
+        result = await litellm_admin.store_provider_credential(provider, request.api_key, _actor(user), request.extra or None)
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+    # A freshly credentialed provider should be usable immediately.
+    disabled = [item for item in gateway_settings.disabled_providers() if item != provider]
+    if len(disabled) != len(gateway_settings.disabled_providers()):
+        gateway_settings.set_value('providers.disabled', disabled, _actor(user))
+    return {'provider': provider, 'credential_name': litellm_admin.credential_name(provider), 'litellm_response': result}
+
+
+@app.delete('/gateway/catalog/providers/{provider}/credential')
+async def gateway_provider_credential_delete(provider: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    try:
+        result = await litellm_admin.delete_provider_credential(provider, _actor(user))
+    except Exception as exc:
+        raise _admin_http_error(exc) from exc
+    return {'provider': provider, 'deleted': litellm_admin.credential_name(provider), 'litellm_response': result}
+
+
+@app.post('/gateway/catalog/providers/{provider}/{action}')
+async def gateway_provider_toggle(provider: str, action: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    from app.model_catalog import PROVIDERS
+    if provider not in PROVIDERS or action not in ('enable', 'disable'):
+        raise HTTPException(status_code=404, detail='Unknown provider or action')
+    disabled = set(gateway_settings.disabled_providers())
+    (disabled.discard if action == 'enable' else disabled.add)(provider)
+    gateway_settings.set_value('providers.disabled', sorted(disabled), _actor(user))
+    rows = model_catalog.providers(None, await model_catalog.litellm_credentials())
+    return next(row for row in rows if row['id'] == provider)
+
+
+@app.post('/gateway/catalog/models/{model_name:path}/{action}')
+async def gateway_model_toggle(model_name: str, action: str, user: AuthenticatedUser = Depends(require_model_admin)):
+    if action not in ('enable', 'disable'):
+        raise HTTPException(status_code=404, detail='Unknown action')
+    disabled = set(gateway_settings.disabled_models())
+    (disabled.discard if action == 'enable' else disabled.add)(model_name)
+    gateway_settings.set_value('models.disabled', sorted(disabled), _actor(user))
+    return {'model': model_name, 'disabled': model_name in disabled}
+
+
+@app.api_route('/gateway/admin/litellm/{path:path}', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+async def gateway_admin_litellm(path: str, request: Request, user: AuthenticatedUser = Depends(get_current_user)):
+    """Allow-listed passthrough to LiteLLM's management API with the proxy admin key.
+
+    Reads need the policy-manager role (browse); writes need admin / model-admin.
+    Every write is recorded in the policy audit trail with secrets redacted.
+    """
+    if request.method == 'GET':
+        if not user_can_manage_policies(user) and not user_can_manage_models(user):
+            raise HTTPException(status_code=403, detail='Policy manager permission is required')
+    elif not user_can_manage_models(user):
+        raise HTTPException(status_code=403, detail='Model administration permission is required')
+    body = None
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        raw = await request.body()
+        if raw:
+            try:
+                body = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail='Request body must be JSON') from exc
+    try:
+        status_code, payload = await litellm_admin.request(
+            request.method, path, params=dict(request.query_params), body=body, actor=_actor(user)
+        )
+    except LiteLLMAdminError as exc:
+        raise _admin_http_error(exc) from exc
+    return Response(content=json.dumps(payload, default=str), status_code=status_code, media_type='application/json')
 
 
 @app.get('/')
@@ -332,11 +469,12 @@ def _extract_violation_records(request, user, metadata, safety_result):
 @app.post('/chat', response_model=ChatResponse)
 async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_current_user)):
     requested_model = llm_client.resolve_model(request.model, 'chat')
-    if not llm_client.model_allowed(requested_model):
-        raise HTTPException(
-            status_code=400,
-            detail=f'Model {requested_model!r} is not in the gateway allowlist: {Settings.LLM_ALLOWED_MODELS}',
-        )
+    if llm_client.mode == 'proxy':
+        rejection = await model_catalog.chat_model_rejection(requested_model)
+        if rejection:
+            raise HTTPException(status_code=409 if 'disabled' in rejection else 400, detail=rejection)
+    elif not llm_client.model_allowed(requested_model):
+        raise HTTPException(status_code=400, detail=f'Model {requested_model!r} is not in the gateway allowlist')
     request.model = requested_model
 
     # Bind caller identity once so every model call in this request (answer +
@@ -658,8 +796,8 @@ def finops_report(days: int = 30, user: AuthenticatedUser = Depends(require_fino
     summary['currency'] = Settings.FINOPS_CURRENCY
     summary['gateway'] = {
         'mode': llm_client.mode,
-        'default_model': llm_client.default_model,
-        'judge_model': llm_client.judge_model,
+        'default_model': gateway_settings.effective_default_model(),
+        'judge_model': gateway_settings.effective_judge_model(),
         'cost_system_of_record': 'litellm' if llm_client.mode == 'proxy' else 'estimated',
     }
     return summary
@@ -698,12 +836,12 @@ def policy():
     # The stored policy document is seeded once; the model and provider shown
     # to clients must follow the live gateway configuration, so overlay them.
     payload = get_policy_payload()
-    payload['model'] = llm_client.default_model
+    payload['model'] = gateway_settings.effective_default_model()
     payload['provider'] = llm_client.provider_label
     payload['llm_gateway'] = {
         'mode': llm_client.mode,
-        'judge_model': llm_client.judge_model,
-        'allowed_models': Settings.LLM_ALLOWED_MODELS,
+        'judge_model': gateway_settings.effective_judge_model(),
+        'allowed_models': gateway_settings.effective_allowed_models(),
     }
     return PolicyResponse(policy=payload)
 

@@ -25,7 +25,7 @@ deployment does not touch.
 ## Cognito
 
 - User pool `ap-southeast-1_FMGf5Zs0e` (`responsible-ai-dev`), app client `33v9cjft60qcjgtkkjdlulhjrc`
-- Groups: `admin`, `policy-manager`, `guardrails-admin`, `finops`, `aiops`
+- Groups: `admin`, `policy-manager`, `guardrails-admin`, `finops`, `aiops` (the `model-admin` role is honoured by the gateway but has no Cognito group yet; `admin` covers it)
 - Auth flows: SRP (hosted UI/PKCE), refresh, and `ADMIN_USER_PASSWORD_AUTH` (dev smoke tests only)
 - Callback / logout URLs include `https://d12wylhj234wu3.cloudfront.net` and localhost dev ports
 - Users: `joseph.stephenr@gmail.com` (group `admin`, invited 2026-10-02); smoke tests used temporary users that were deleted
@@ -40,7 +40,7 @@ deployment does not touch.
 
 - Cluster `responsible-ai-dev-aurora` (Serverless v2, 0.5–2 ACU), database `responsible_ai`, user `app_admin`
 - Endpoint `responsible-ai-dev-aurora.cluster-cp80i0820zta.ap-southeast-1.rds.amazonaws.com`
-- Holds the application tables (audit, policies, `llm_usage_events`) and LiteLLM's `LiteLLM_*` tables
+- Holds the application tables (audit, policies, `llm_usage_events`, `gateway_settings`) and LiteLLM's `LiteLLM_*` tables (models, credentials, keys, teams, MCP servers, guardrails, spend)
 
 ## ECR
 

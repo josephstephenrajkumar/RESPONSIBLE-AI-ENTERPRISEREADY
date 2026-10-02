@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from app import gateway_settings
 from app.config import Settings
 from app.database import PolicyAuditEvent, SessionLocal
 
@@ -176,16 +177,40 @@ class ModelCatalog:
     # ------------------------------------------------------------------
     # Read side
     # ------------------------------------------------------------------
-    def providers(self, configured_counts: Optional[Dict[str, int]] = None) -> List[Dict[str, Any]]:
+    def providers(self, configured_counts: Optional[Dict[str, int]] = None,
+                  litellm_credentials: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+        """Provider rows with credential sources and the effective enabled flag.
+
+        A provider has a credential when the deployment provides it (env var on the
+        proxy, listed in LLM_PROVIDERS_ENABLED), when an administrator stored one in
+        LiteLLM's credential store (`<provider>-default`), or when it uses IAM. An
+        administrator can additionally disable a provider at runtime.
+        """
         counts = configured_counts or {}
+        stored = {}
+        for item in litellm_credentials or []:
+            info = item.get('credential_info') or {}
+            name = item.get('credential_name') or ''
+            provider = info.get('custom_llm_provider') or (name[:-8] if name.endswith('-default') else None)
+            if provider:
+                stored[provider] = {'name': name, 'created_by': info.get('created_by'), 'created_at': info.get('created_at')}
+        disabled = set(gateway_settings.disabled_providers())
         rows = []
         for key, spec in PROVIDERS.items():
-            enabled = key in Settings.LLM_PROVIDERS_ENABLED
             credential = dict(spec['credential'])
+            sources = []
+            if credential['type'] == 'iam':
+                sources.append('iam')
+            if key in Settings.LLM_PROVIDERS_ENABLED:
+                sources.append('env')
+            if key in stored:
+                sources.append('litellm')
+            has_credential = bool(sources)
+            enabled = has_credential and key not in disabled
             if credential['type'] == 'api_key':
                 how = (
-                    f"Store the key in Secrets Manager `responsible-ai-<env>/{credential['secret']}`, add "
-                    f"`{credential['env']}` to the proxy's provider_secret_arns and `{key}` to LLM_PROVIDERS_ENABLED, then redeploy."
+                    f"Add the {spec['display_name']} API key here (stored encrypted in the LiteLLM proxy database), "
+                    f"or mount `{credential['env']}` into the proxy via Terraform and list `{key}` in LLM_PROVIDERS_ENABLED."
                 )
             else:
                 how = 'Grant bedrock:InvokeModel to the proxy task role and add `bedrock` to LLM_PROVIDERS_ENABLED.'
@@ -194,12 +219,19 @@ class ModelCatalog:
                 'display_name': spec['display_name'],
                 'litellm_prefix': spec['prefix'],
                 'enabled': enabled,
+                'has_credential': has_credential,
+                'credential_sources': sources,
+                'stored_credential': stored.get(key),
+                'disabled_by_admin': key in disabled,
                 'credential': credential,
                 'configured_models': counts.get(key, 0),
                 'how_to_enable': None if enabled else how,
                 'docs': spec['docs'],
             })
         return rows
+
+    def provider_enabled(self, provider: str, litellm_credentials: Optional[List[Dict[str, Any]]] = None) -> bool:
+        return any(row['enabled'] for row in self.providers(None, litellm_credentials) if row['id'] == provider)
 
     async def deployments(self) -> List[Dict[str, Any]]:
         data = await self._get('/model/info')
@@ -244,25 +276,66 @@ class ModelCatalog:
             for g in data.get('data', [])
         ]
 
+    async def litellm_credentials(self) -> List[Dict[str, Any]]:
+        try:
+            data = await self._get('/credentials')
+        except Exception:
+            return []
+        return data.get('credentials', []) if isinstance(data, dict) else []
+
     async def catalog(self) -> Dict[str, Any]:
         deployments = await self.deployments()
         counts: Dict[str, int] = {}
         for row in deployments:
             counts[row['provider']] = counts.get(row['provider'], 0) + 1
+        credentials = await self.litellm_credentials()
+        disabled_models = set(gateway_settings.disabled_models())
+        for row in deployments:
+            row['disabled_by_admin'] = row['model_name'] in disabled_models
         return {
             'proxy_url': self._base_url(),
-            'enabled_providers': Settings.LLM_PROVIDERS_ENABLED,
-            'providers': self.providers(counts),
+            'env_enabled_providers': Settings.LLM_PROVIDERS_ENABLED,
+            'enabled_providers': [p['id'] for p in self.providers(counts, credentials) if p['enabled']],
+            'providers': self.providers(counts, credentials),
             'models': deployments,
             'groups': await self.groups(),
-            'default_model': Settings.LLM_DEFAULT_MODEL,
-            'judge_model': Settings.LLM_JUDGE_MODEL,
-            'allowed_models': Settings.LLM_ALLOWED_MODELS,
+            'default_model': gateway_settings.effective_default_model(),
+            'judge_model': gateway_settings.effective_judge_model(),
+            'allowed_models': gateway_settings.effective_allowed_models(),
+            'settings': gateway_settings.effective_view(),
         }
 
+    # Provider lookup for /chat enforcement; cached so a chat request does not
+    # pay a proxy round-trip.
+    _provider_cache: Dict[str, Any] = {'loaded_at': 0.0, 'map': {}}
+
+    async def provider_of(self, model_name: str) -> Optional[str]:
+        import time as _time
+        if _time.time() - self._provider_cache['loaded_at'] > 60:
+            try:
+                self._provider_cache['map'] = {row['model_name']: row['provider'] for row in await self.deployments()}
+                self._provider_cache['loaded_at'] = _time.time()
+            except Exception:
+                pass
+        return self._provider_cache['map'].get(model_name)
+
+    async def chat_model_rejection(self, model_name: str) -> Optional[str]:
+        """Reason a chat request for this model must be rejected, or None."""
+        allowed = gateway_settings.effective_allowed_models()
+        if allowed and model_name not in allowed:
+            return f'Model {model_name!r} is not in the gateway allowlist: {allowed}'
+        if model_name in gateway_settings.disabled_models():
+            return f'Model {model_name!r} has been disabled by an administrator'
+        provider = await self.provider_of(model_name)
+        if provider and provider in gateway_settings.disabled_providers():
+            return f'Provider {provider!r} has been disabled by an administrator'
+        return None
+
     async def grouped_models(self, allowed: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Chat-screen view: model names grouped by provider, honouring the allowlist."""
+        """Chat-screen view: enabled models grouped by enabled providers, honouring the allowlist."""
         deployments = await self.deployments()
+        disabled_models = set(gateway_settings.disabled_models())
+        disabled_providers = set(gateway_settings.disabled_providers())
         by_provider: Dict[str, List[str]] = {}
         details = []
         for row in deployments:
@@ -270,6 +343,8 @@ class ModelCatalog:
             if not name or (allowed and name not in allowed):
                 continue
             if row.get('mode') not in (None, 'chat'):
+                continue
+            if name in disabled_models or row['provider'] in disabled_providers:
                 continue
             by_provider.setdefault(row['provider'], [])
             if name not in by_provider[row['provider']]:
@@ -379,12 +454,13 @@ class ModelCatalog:
     # Write side
     # ------------------------------------------------------------------
     def build_new_model_payload(self, provider: str, model: str, model_name: Optional[str], actor: str,
-                                description: str = '') -> Dict[str, Any]:
+                                description: str = '', credential_name: Optional[str] = None,
+                                litellm_credentials: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         spec = PROVIDERS.get(provider)
         if not spec:
             raise CatalogError(400, f'Unknown provider {provider!r}')
-        if provider not in Settings.LLM_PROVIDERS_ENABLED:
-            raise CatalogError(409, f'Provider {provider!r} is not enabled on this gateway (LLM_PROVIDERS_ENABLED)')
+        if not self.provider_enabled(provider, litellm_credentials):
+            raise CatalogError(409, f'Provider {provider!r} is not enabled: add a credential and enable it in the Proxy Manager')
         model = (model or '').strip()
         if model.startswith(spec['prefix'] + '/'):
             model = model[len(spec['prefix']) + 1:]
@@ -395,8 +471,12 @@ class ModelCatalog:
             raise CatalogError(400, 'Model name contains unsupported characters')
         params: Dict[str, Any] = {'model': f"{spec['prefix']}/{model}"}
         if spec['credential']['type'] == 'api_key':
-            # Reference the proxy's environment; never a key supplied by the UI.
-            params['api_key'] = f"os.environ/{spec['credential']['env']}"
+            # Prefer a credential stored in LiteLLM by an administrator; otherwise
+            # reference the proxy's environment. Never a key supplied by the UI.
+            if credential_name:
+                params['litellm_credential_name'] = credential_name
+            else:
+                params['api_key'] = f"os.environ/{spec['credential']['env']}"
         if provider == 'bedrock':
             params['aws_region_name'] = Settings.BEDROCK_REGION
         return {
@@ -411,7 +491,12 @@ class ModelCatalog:
 
     async def add_model(self, provider: str, model: str, model_name: Optional[str], actor: str,
                         description: str = '') -> Dict[str, Any]:
-        payload = self.build_new_model_payload(provider, model, model_name, actor, description)
+        credentials = await self.litellm_credentials()
+        stored = next((c.get('credential_name') for c in credentials
+                       if (c.get('credential_info') or {}).get('custom_llm_provider') == provider
+                       or c.get('credential_name') == f'{provider}-default'), None)
+        payload = self.build_new_model_payload(provider, model, model_name, actor, description,
+                                               credential_name=stored, litellm_credentials=credentials)
         existing = {row['model_name'] for row in await self.deployments()}
         if payload['model_name'] in existing:
             raise CatalogError(409, f"A model named {payload['model_name']!r} already exists")

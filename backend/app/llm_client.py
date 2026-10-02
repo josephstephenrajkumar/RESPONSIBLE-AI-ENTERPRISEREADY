@@ -146,10 +146,14 @@ class LLMGatewayClient:
     def resolve_model(self, model: Optional[str], purpose: str = 'chat') -> str:
         if model:
             return model
-        return self.judge_model if purpose.startswith('judge') else self.default_model
+        # Administrators may override the defaults at runtime (Proxy Manager).
+        from app import gateway_settings
+        return gateway_settings.effective_judge_model() if purpose.startswith('judge') else gateway_settings.effective_default_model()
 
     def model_allowed(self, model: str) -> bool:
-        return not Settings.LLM_ALLOWED_MODELS or model in Settings.LLM_ALLOWED_MODELS
+        from app import gateway_settings
+        allowed = gateway_settings.effective_allowed_models()
+        return (not allowed or model in allowed) and model not in gateway_settings.disabled_models()
 
     def _build_payload(self, messages: List[Dict[str, str]], model: str, temperature: float,
                        max_tokens: int, purpose: str, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -434,13 +438,14 @@ class LLMGatewayClient:
 
     async def health(self) -> Dict[str, Any]:
         """Live dependency check used by /gateway/health and the AIOps dashboard."""
+        from app import gateway_settings
         info: Dict[str, Any] = {
             'mode': self.mode,
             'provider': self.provider_label,
             'base_url': self.base_url,
-            'default_model': self.default_model,
-            'judge_model': self.judge_model,
-            'allowed_models': Settings.LLM_ALLOWED_MODELS,
+            'default_model': gateway_settings.effective_default_model(),
+            'judge_model': gateway_settings.effective_judge_model(),
+            'allowed_models': gateway_settings.effective_allowed_models(),
             'credential_configured': bool(self._api_key()),
             'application_holds_provider_key': bool(Settings.GROQ_API_KEY) if self.mode == 'proxy' else True,
         }
@@ -453,7 +458,7 @@ class LLMGatewayClient:
                 'latency_ms': int((time.perf_counter() - started) * 1000),
                 'models': models,
                 'model_count': len(models),
-                'default_model_available': self.default_model in models if models else None,
+                'default_model_available': info['default_model'] in models if models else None,
             })
         except Exception as exc:
             info.update({

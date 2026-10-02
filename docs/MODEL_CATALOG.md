@@ -53,12 +53,15 @@ LITELLM_SALT_KEY=<secret>      # generated once (responsible-ai-dev/litellm_salt
 
 - **Provider registry** (fixed): `groq`, `bedrock`, `anthropic`, `openai`, `gemini`, `mistral`, each with its LiteLLM
   route prefix, credential type (`api_key` env var or `iam`) and which price-map providers it covers.
-- **Enablement** comes from the gateway setting `LLM_PROVIDERS_ENABLED` (Terraform `enabled_providers`), which must
-  mirror the credentials the *proxy* holds. Disabled providers are shown with instructions, not hidden.
+- **Enablement** is dynamic (see [LITELLM_PROXY_MANAGER.md](LITELLM_PROXY_MANAGER.md)): a provider is enabled when the
+  proxy holds a credential for it — mounted by Terraform (`LLM_PROVIDERS_ENABLED` lists these), stored by an
+  administrator in LiteLLM's credential store, or IAM for Bedrock — and an administrator has not disabled it.
 - **Explicit models, no wildcards**: administrators add specific models. A `provider/*` wildcard route would let any
   model be called and defeat budgets and the allowlist.
-- **Credential boundary**: a new model's `litellm_params` reference `os.environ/<KEY>` (or no key for Bedrock, which
-  uses the proxy task role). The UI never accepts or transmits a provider key.
+- **Credential boundary**: a new model's `litellm_params` reference a stored LiteLLM credential
+  (`litellm_credential_name: <provider>-default`) or `os.environ/<KEY>` (or nothing for Bedrock, which uses the proxy
+  task role). Provider keys are entered once in the Proxy Manager and stored encrypted in the proxy database; this
+  application never persists them.
 - **Discovery**: LiteLLM's price map filtered by provider and `mode: chat`. For Bedrock the gateway also calls
   `bedrock:ListInferenceProfiles` / `ListFoundationModels` in `BEDROCK_REGION` and shows only ids that are actually
   invokable there (`apac.*` / `global.*` inference profiles and on-demand base models).
@@ -81,9 +84,7 @@ a model can be in the catalogue but excluded from chat.
 |---|---|---|
 | Groq | `GROQ_API_KEY` | already enabled in dev |
 | Amazon Bedrock | proxy task role (`bedrock:InvokeModel`, `InvokeModelWithResponseStream`) | enabled in dev; add models by inference-profile id, e.g. `apac.amazon.nova-micro-v1:0`, `apac.anthropic.claude-3-haiku-20240307-v1:0` |
-| Anthropic | `ANTHROPIC_API_KEY` | 1) `aws secretsmanager put-secret-value --secret-id responsible-ai-dev/anthropic_api_key --secret-string ...` 2) uncomment `ANTHROPIC_API_KEY` in `infra/live/dev/ecs-litellm-proxy/terragrunt.hcl` `provider_secret_arns` 3) add `"anthropic"` to `enabled_providers` in `infra/live/dev/ecs-ai-gateway/terragrunt.hcl` 4) plan/apply both modules |
-| OpenAI | `OPENAI_API_KEY` | same steps with `openai_api_key` / `OPENAI_API_KEY` / `"openai"` |
-| Gemini, Mistral | `GEMINI_API_KEY`, `MISTRAL_API_KEY` | add the secret to `infra/live/dev/secrets/terragrunt.hcl` first, then the same steps |
+| Anthropic, OpenAI, Gemini, Mistral | API key | **Proxy Manager → Providers → enter key → Store in proxy** (no deployment). Alternative, deployment-managed: store the key in Secrets Manager (`anthropic_api_key`, `openai_api_key`), mount it in `infra/live/dev/ecs-litellm-proxy/terragrunt.hcl` `provider_secret_arns`, add the provider to `enabled_providers` in `infra/live/dev/ecs-ai-gateway/terragrunt.hcl`, plan/apply both modules |
 
 Locally: put the key in `backend/.env` (compose passes it to the LiteLLM container) and set
 `LLM_PROVIDERS_ENABLED=groq,anthropic` for the backend. Bedrock locally needs AWS credentials inside the proxy

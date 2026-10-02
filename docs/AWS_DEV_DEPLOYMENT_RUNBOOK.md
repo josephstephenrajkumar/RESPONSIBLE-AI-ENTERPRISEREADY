@@ -316,12 +316,12 @@ Store the returned key in `responsible-ai-dev/litellm_gateway_key` and force a n
 
 ### Adding providers and models
 
-Use **Configuration → Model Catalogue** in the app (role `admin` or `model-admin`): pick an enabled provider,
+Use the **Proxy Manager** tab in the app (role `admin` or `model-admin`). Providers: store a provider API key
+(encrypted in the proxy database) or enable/disable a provider; Models: pick an enabled provider,
 choose a model from the discovered list (Bedrock shows what is invokable in the region), add it, then **Test** it.
-Models added this way are stored in the proxy database (`store_model_in_db: true`) and survive restarts. To enable
-Anthropic, OpenAI, Gemini or Mistral, store the key in Secrets Manager, mount it into the proxy
-(`provider_secret_arns`) and add the provider to the gateway's `enabled_providers`, then plan/apply both ECS
-modules — see [MODEL_CATALOG.md](MODEL_CATALOG.md).
+Models added this way are stored in the proxy database (`store_model_in_db: true`) and survive restarts. Teams,
+virtual keys, MCP servers and proxy-side guardrails are managed from the same tab — see
+[LITELLM_PROXY_MANAGER.md](LITELLM_PROXY_MANAGER.md) and [MODEL_CATALOG.md](MODEL_CATALOG.md).
 
 ### Rotate the Groq key
 

@@ -14,6 +14,7 @@ The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, 
 - React/Vite frontend prepared for S3 + CloudFront default HTTPS hosting.
 - FastAPI backend prepared for ECS Fargate as a synchronous AI Gateway.
 - **LiteLLM forward proxy** for all model calls (chat answers and Ragas/TruLens judges): model groups, retries, fallbacks, budgets, metered cost.
+- **LiteLLM Proxy Manager** (admin): enable/disable providers and models, store provider keys in the proxy's encrypted store, teams and virtual keys with budgets, MCP servers, proxy-side guardrails, routing/callbacks/cache view, LiteLLM spend — all through a governed, audited passthrough. See [docs/LITELLM_PROXY_MANAGER.md](docs/LITELLM_PROXY_MANAGER.md).
 - **Model catalogue** (admin): browse providers (Groq, Amazon Bedrock via IAM, Anthropic, OpenAI, Gemini, Mistral), add/test/remove models at runtime through LiteLLM's model API; chat selector grouped by provider. See [docs/MODEL_CATALOG.md](docs/MODEL_CATALOG.md).
 - **FinOps dashboard** (`finops`/`admin` roles): spend by model, tenant, user, purpose; unit economics; monthly budget gauge.
 - **AIOps dashboard** (`aiops`/`admin` roles): availability, p50/p95/p99 latency, error classes, retries/fallbacks, live dependency health.
@@ -29,6 +30,7 @@ The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, 
 - [Roadmap](docs/ROADMAP.md) — Sprint 1 (done) through Sprint 6
 - [Technical Debt Register](docs/TECH_DEBT.md)
 - [Model Catalogue](docs/MODEL_CATALOG.md) — multi-provider models through LiteLLM, admin screen, enabling a provider
+- [LiteLLM Proxy Manager](docs/LITELLM_PROXY_MANAGER.md) — providers, credentials, keys & budgets, MCP, guardrails, routing, spend
 - [Architecture Blueprint](docs/ARCHITECTURE_BLUEPRINT.md) (v1 shape)
 - [AWS Service Mapping](docs/AWS_SERVICE_MAPPING.md)
 - [Migration Plan](docs/MIGRATION_PLAN.md)
@@ -86,7 +88,7 @@ LiteLLM proxy
    npm run dev
    ```
 
-Keep `AUTH_REQUIRED=false` for local development (the local user is an admin and sees every dashboard). In AWS, set `AUTH_REQUIRED=true`; Cognito groups `admin`, `policy-manager`, `finops` and `aiops` gate the screens.
+Keep `AUTH_REQUIRED=false` for local development (the local user is an admin and sees every dashboard). In AWS, set `AUTH_REQUIRED=true`; Cognito groups `admin`, `model-admin`, `policy-manager`, `finops` and `aiops` gate the screens.
 
 ### Offline / zero-spend mode
 
@@ -106,6 +108,7 @@ docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d litellm
 | `GET /gateway/health` | LiteLLM reachability, models served, credential-boundary check |
 | `GET /gateway/models` | Models the chat UI may select, grouped by provider |
 | `GET /gateway/catalog` | Admin model catalogue (providers, models, groups) |
+| `GET /gateway/admin/overview`, `ANY /gateway/admin/litellm/{path}` | Proxy Manager: overview and governed passthrough to LiteLLM management routes |
 | `GET /reports/finops?days=30` | FinOps report (`finops`/`admin`) |
 | `GET /reports/aiops?hours=24` | AIOps report (`aiops`/`admin`) |
 | `http://localhost:16686` | Jaeger: `responsible-ai-chat-agent` and `litellm-proxy` services |

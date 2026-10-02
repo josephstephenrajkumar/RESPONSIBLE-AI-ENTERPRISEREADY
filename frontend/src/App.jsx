@@ -9,7 +9,7 @@ import GuardrailsDashboard from './components/GuardrailsDashboard'
 import FinOpsDashboard from './components/FinOpsDashboard'
 import AIOpsDashboard from './components/AIOpsDashboard'
 import AuthStatus from './components/AuthStatus'
-import ModelCatalog from './components/ModelCatalog'
+import ProxyManager from './components/ProxyManager'
 import { sendChat, fetchPolicy } from './api'
 
 // `model` has no client-side default: it must come from the backend's /policy
@@ -29,6 +29,7 @@ const defaultSettings = {
 const SCREENS = [
   { id: 'chat', label: 'Chat', permission: null },
   { id: 'dashboards', label: 'Responsible AI', permission: 'manage_policies' },
+  { id: 'proxy', label: 'Proxy Manager', permission: 'manage_models' },
   { id: 'finops', label: 'FinOps', permission: 'view_finops' },
   { id: 'aiops', label: 'AIOps', permission: 'view_aiops' },
   { id: 'configuration', label: 'Configuration', permission: 'manage_policies' },
@@ -114,10 +115,15 @@ export default function App() {
             <AIOpsDashboard />
           </main>
         )
+      case 'proxy':
+        return (
+          <main className="admin-screen">
+            <ProxyManager canManage={permissions.manage_models === true} />
+          </main>
+        )
       case 'configuration':
         return (
           <main className="admin-screen">
-            <ModelCatalog canManage={permissions.manage_models === true} />
             <PolicyManager user={user} view="configuration" />
           </main>
         )

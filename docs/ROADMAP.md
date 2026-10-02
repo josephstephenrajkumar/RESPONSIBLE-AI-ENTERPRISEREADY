@@ -32,7 +32,7 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 > Progress 2026-10-02: the proxy and keyless gateway are live in dev (account 767141477889); the gateway still uses the master key (TD-25). Remaining items below.
 
 - Apply `ecs-litellm-proxy` in dev; move the Groq key out of the gateway task; issue the gateway a virtual key with `max_budget` and model scope.
-- Per-tenant/team virtual keys and budgets (`/team/new`, `/key/generate`), RPM/TPM limits; map Cognito `custom:tenant_id` → LiteLLM team.
+- ✅ Proxy Manager: teams and virtual keys with budgets/RPM/TPM from the admin UI (`/team/new`, `/key/generate`), provider credentials in LiteLLM's store, MCP servers, proxy guardrails, config/spend views. Remaining: map Cognito `custom:tenant_id` → LiteLLM team automatically in the gateway.
 - ✅ Multi-provider model catalogue in the admin screen (LiteLLM `/model/*`, `store_model_in_db`); Bedrock via the proxy task role (no key). Remaining: promote evaluated models to `config.yaml` and define fallbacks across providers.
 - Langfuse callback on the proxy; remove app-side decorators (TD-11).
 - CloudWatch EMF metrics from the gateway (latency, errors, cost) and alarms on p95 / error rate / budget burn; SNS notifications.
