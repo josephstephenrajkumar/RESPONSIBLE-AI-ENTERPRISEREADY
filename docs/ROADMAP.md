@@ -29,6 +29,8 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 
 ### Sprint 2 — Proxy in AWS, budgets, hardening
 
+> Progress 2026-10-02: the proxy and keyless gateway are live in dev (account 767141477889); the gateway still uses the master key (TD-25). Remaining items below.
+
 - Apply `ecs-litellm-proxy` in dev; move the Groq key out of the gateway task; issue the gateway a virtual key with `max_budget` and model scope.
 - Per-tenant/team virtual keys and budgets (`/team/new`, `/key/generate`), RPM/TPM limits; map Cognito `custom:tenant_id` → LiteLLM team.
 - Add Amazon Bedrock models to `model_list` via the task role (no key); keep Groq as fallback.
@@ -86,7 +88,7 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | Milestone | Target | Depends on |
 |---|---|---|
 | M1 Proxy mandatory locally | Sprint 1 ✅ | — |
-| M2 Proxy live in dev AWS, gateway keyless | Sprint 2 | Groq key rotation, Aurora access for proxy |
+| M2 Proxy live in dev AWS, gateway keyless | Sprint 2 ✅ 2026-10-02 (scoped key pending, TD-25) | — |
 | M3 Budgets enforced per tenant | Sprint 2 | M2 |
 | M4 Evaluation off the request path | Sprint 3 | M2 |
 | M5 Tenant-scoped governance and exports | Sprint 4 | M3 |

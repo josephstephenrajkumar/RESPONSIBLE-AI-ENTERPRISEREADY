@@ -31,6 +31,7 @@ The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, 
 - [AWS Service Mapping](docs/AWS_SERVICE_MAPPING.md)
 - [Migration Plan](docs/MIGRATION_PLAN.md)
 - [Claude AI Development Cycle](docs/claude-development-cycle/README.md)
+- [Dev deployment snapshot (account 767141477889)](docs/aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md) — live URLs and resource inventory
 
 ## Target AWS Architecture
 

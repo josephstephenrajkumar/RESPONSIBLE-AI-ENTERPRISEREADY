@@ -59,10 +59,27 @@ Infrastructure: `infra/modules/ecs-litellm-proxy` (new), `infra/live/dev/ecs-lit
 | Jaeger services | `responsible-ai-chat-agent`, `litellm-proxy` |
 | Scenario suite (`tests/run_scenarios.py`, mock upstream) | 16 passed, 2 failed, 0 errored. Failures are `RAGAS-01`/`RAGAS-02` ("ragas engine used", "fairness score present"): the mock upstream cannot produce Ragas' structured judge output, so Ragas fell back to its heuristic. Expected in mock mode; re-run against the real proxy config once the Groq key is rotated. All `LITELLM-*`, `GATEWAY-01`, `FINOPS-01`, `AIOPS-01`, Presidio, Guardrails and TruLens scenarios pass. |
 
-## DEPLOY — not performed
+## DEPLOY — dev, account 767141477889 (fresh stack), 2026-10-02
 
-Dev AWS apply is Sprint 2 (requires Groq key rotation, `secrets` apply with the new secrets,
-`ecs-litellm-proxy` apply, virtual key generation). Rollback path documented in the ADD §10.
+Approved by the product owner in chat ("go ahead and deploy"; account choice: fresh stack in
+767141477889; commit first). Every module was applied from a saved, reviewed `terragrunt plan`
+(no `-auto-approve`). Inventory: [aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md](../../aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md).
+
+| Step | Result |
+|---|---|
+| Preflight | New Groq key valid; account serves only `openai/gpt-oss-*` → LiteLLM `model_list` retargeted; local proxy → Groq verified (cost headers, 47 ms overhead) |
+| Credentials | Local profiles and AWS connector resolve to 767141477889 (not the earlier 311464491957); deployment retargeted after owner decision |
+| network / secrets / cognito / aurora / ecr | 19 / 13 / 8 / 5 / 2 resources; secret values stored via local boto3 (never in chat) |
+| Image | `78a15b0` built for linux/amd64 on Colima (6.5 min), pushed; rebuilt as `aed1bb5` after the fix below |
+| ecs-litellm-proxy | 22 resources; config loaded from S3 ("Proxy initialized with Config"); Prisma migrations applied to Aurora; target healthy |
+| ecs-ai-gateway | 16 resources; task mounts only `LITELLM_API_KEY`; healthy |
+| api-gateway / frontend / observability | 6 / 6 / 2 resources; `https://0nl4sfks87.execute-api.ap-southeast-1.amazonaws.com`; `https://d12wylhj234wu3.cloudfront.net` |
+| Smoke (temporary admin user, deleted) | `/gateway/health` ok, `application_holds_provider_key=false`; chat metered by LiteLLM; Presidio, Guardrails, Ragas (1.0), TruLens (0.1) real engines; Aurora `postgresql`; X-Ray tracing enabled |
+| Defect found and fixed | Framework-mode answer falsely "blocked": `Guard.validate('')` fails on an empty string, and GPT-OSS can spend a small `max_tokens` on reasoning. Fixed in `aed1bb5` (skip validation of empty text; expose `finish_reason`; explicit no-text message). Re-verified in AWS: `finish_reason=length` → message, not block |
+| Second pass | CloudFront origin added to Cognito callbacks, API Gateway CORS and gateway `FRONTEND_ORIGINS`; preflight from CloudFront → 200 |
+
+Not done: end-user Cognito accounts (owner to confirm the email to invite); scoped LiteLLM virtual
+key for the gateway (TD-25); Guardrails Hub validators are not installed in the fresh environment.
 
 ## Risks carried forward
 
