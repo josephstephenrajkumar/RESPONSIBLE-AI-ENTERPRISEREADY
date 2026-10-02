@@ -15,6 +15,11 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | **Platform integration & guided configuration** | The AI App control plane discovers the gateway at run time and receives gateway-issued credentials; administrators configure every scope with examples, validation and AI assistance. See [PROXY_MANAGER_ENTERPRISE_DESIGN.md](PROXY_MANAGER_ENTERPRISE_DESIGN.md). |
 | **Multi-tenancy** | Tenants get separated data, configuration, credentials, budgets and policies, with a choice of isolation tier. See [MULTI_TENANCY_DESIGN.md](MULTI_TENANCY_DESIGN.md). |
 
+> **Activate AI Platform documents.** Every requirement on this roadmap is mirrored into the Activate specifications in
+> `docs/AI platform /` (Word): *Activate AI Platform Overall Roadmap* v1.4 (section 1.3 maps each requirement to a Phase 0–4 row
+> or marks it covered; new rows carry †), *AI Gateway Recommended Architecture* v1.8 and *AI App Platform Recommended Architecture*
+> v1.6. When this file changes, update those documents in the same change.
+
 ## Sprint plan
 
 ### Sprint 1 — LiteLLM forward proxy, metering, FinOps & AIOps v1  ✅ implemented 2026-10-02
