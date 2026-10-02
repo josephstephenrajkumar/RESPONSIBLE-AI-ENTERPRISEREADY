@@ -28,7 +28,7 @@ deployment does not touch.
 - Groups: `admin`, `policy-manager`, `guardrails-admin`, `finops`, `aiops`
 - Auth flows: SRP (hosted UI/PKCE), refresh, and `ADMIN_USER_PASSWORD_AUTH` (dev smoke tests only)
 - Callback / logout URLs include `https://d12wylhj234wu3.cloudfront.net` and localhost dev ports
-- No end-user accounts created yet (smoke tests used temporary users that were deleted)
+- Users: `joseph.stephenr@gmail.com` (group `admin`, invited 2026-10-02); smoke tests used temporary users that were deleted
 
 ## Secrets Manager (`responsible-ai-dev/*`)
 

@@ -78,7 +78,7 @@ Approved by the product owner in chat ("go ahead and deploy"; account choice: fr
 | Defect found and fixed | Framework-mode answer falsely "blocked": `Guard.validate('')` fails on an empty string, and GPT-OSS can spend a small `max_tokens` on reasoning. Fixed in `aed1bb5` (skip validation of empty text; expose `finish_reason`; explicit no-text message). Re-verified in AWS: `finish_reason=length` → message, not block |
 | Second pass | CloudFront origin added to Cognito callbacks, API Gateway CORS and gateway `FRONTEND_ORIGINS`; preflight from CloudFront → 200 |
 
-Not done: end-user Cognito accounts (owner to confirm the email to invite); scoped LiteLLM virtual
+Owner account `joseph.stephenr@gmail.com` invited to the pool (group `admin`). Not done: scoped LiteLLM virtual
 key for the gateway (TD-25); Guardrails Hub validators are not installed in the fresh environment.
 
 ## Risks carried forward
