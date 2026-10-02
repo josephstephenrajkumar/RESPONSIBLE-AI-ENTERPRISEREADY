@@ -119,9 +119,6 @@ export default function HubValidatorCatalog({ onImportDraft, canManage = true })
               <p>{validator.description}</p>
               {validator.metadata?.recommended && <p className="muted">Recommended: {validator.metadata.why}</p>}
               <code>{validator.hub_uri}</code>
-              {!validator.token_configured && (
-                <p className="muted">Hub install requires GUARDRAILS_TOKEN on the backend.</p>
-              )}
               {messages[validator.hub_uri] && <p className="install-message">{messages[validator.hub_uri]}</p>}
             </div>
             <div className="button-row">

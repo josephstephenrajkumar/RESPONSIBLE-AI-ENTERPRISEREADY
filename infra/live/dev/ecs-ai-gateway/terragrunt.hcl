@@ -20,8 +20,9 @@ dependency "secrets" {
 
   mock_outputs = {
     secret_arns = {
-      groq_api_key      = "arn:aws:secretsmanager:ap-southeast-1:311464491957:secret:mock"
-      guardrails_token = "arn:aws:secretsmanager:ap-southeast-1:311464491957:secret:mock"
+      groq_api_key        = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
+      guardrails_token    = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
+      litellm_gateway_key = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
     }
   }
 }
@@ -49,7 +50,15 @@ dependency "ecr" {
   config_path = "../ecr"
 
   mock_outputs = {
-    repository_url = "311464491957.dkr.ecr.ap-southeast-1.amazonaws.com/responsible-ai-dev-ai-gateway"
+    repository_url = "767141477889.dkr.ecr.ap-southeast-1.amazonaws.com/responsible-ai-dev-ai-gateway"
+  }
+}
+
+dependency "litellm" {
+  config_path = "../ecs-litellm-proxy"
+
+  mock_outputs = {
+    proxy_url = "http://mock-litellm.internal"
   }
 }
 
@@ -63,10 +72,18 @@ inputs = {
   ecr_repository_url = dependency.ecr.outputs.repository_url
   image_tag          = "latest"
 
-  groq_api_key_secret_arn     = dependency.secrets.outputs.secret_arns.groq_api_key
-  guardrails_token_secret_arn = "arn:aws:secretsmanager:ap-southeast-1:311464491957:secret:responsible-ai-dev/guardrails_token-QbWaDj"
-  groq_model                  = "llama-3.3-70b-versatile"
-  groq_api_url                = "https://api.groq.com/openai/v1"
+  # All model traffic goes through the LiteLLM proxy. The gateway task gets a
+  # LiteLLM virtual key (generate it with /key/generate and store it in the
+  # litellm_gateway_key secret); it never receives GROQ_API_KEY.
+  llm_gateway_mode           = "proxy"
+  litellm_proxy_url          = dependency.litellm.outputs.proxy_url
+  litellm_api_key_secret_arn = dependency.secrets.outputs.secret_arns.litellm_gateway_key
+  llm_default_model          = "openai/gpt-oss-120b"
+  llm_judge_model            = "judge-fast"
+  llm_allowed_models         = ""
+  finops_monthly_budget_usd  = 50
+
+  guardrails_token_secret_arn = ""
   observability_console_url   = "https://ap-southeast-1.console.aws.amazon.com/xray/home?region=ap-southeast-1#/traces"
 
   cognito_region        = "ap-southeast-1"
@@ -75,7 +92,7 @@ inputs = {
   cognito_domain        = dependency.cognito.outputs.hosted_ui_domain
   cognito_issuer        = dependency.cognito.outputs.issuer
 
-  frontend_origins = "http://localhost:5173,http://localhost:3000,https://df22y6w4tmruy.cloudfront.net"
+  frontend_origins = "http://localhost:5173,http://localhost:3000"
   auth_required    = true
   desired_count    = 1
   cpu              = 1024

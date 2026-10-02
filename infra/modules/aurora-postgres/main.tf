@@ -162,3 +162,9 @@ output "database_url" {
   value     = "postgresql+psycopg2://${var.master_username}:${var.master_password}@${aws_rds_cluster.this.endpoint}:5432/${var.db_name}"
   sensitive = true
 }
+
+# Plain libpq-style URL for services that are not SQLAlchemy (LiteLLM/Prisma).
+output "postgres_url" {
+  value     = "postgresql://${var.master_username}:${var.master_password}@${aws_rds_cluster.this.endpoint}:5432/${var.db_name}"
+  sensitive = true
+}

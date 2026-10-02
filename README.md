@@ -1,30 +1,36 @@
 # Responsible AI EnterpriseReady
 
-This project is the enterprise-ready refactor of the original single-node Responsible AI Chat Agent. It keeps the chat experience synchronous while turning the backend into an inline **AI Gateway / Policy Enforcement Proxy**:
+This project is the enterprise-ready refactor of the original single-node Responsible AI Chat Agent. It keeps the chat experience synchronous while turning the backend into an inline **Policy Enforcement Gateway** that sends every model call through a **LiteLLM model gateway**:
 
 ```text
-Chat client -> AI Gateway -> Groq -> AI Gateway -> Chat client
+Chat client -> AI Gateway (policy) -> LiteLLM proxy (models) -> Groq / Bedrock / OpenAI
+                                   <-                        <-
 ```
 
-The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, custom domains, ACM, and Route53. Responsible AI wraps the request/response pipe without changing the conversational flow.
+The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, custom domains, ACM, and Route53. Responsible AI wraps the request/response pipe without changing the conversational flow. Provider credentials live only in the proxy; the application tier holds a scoped LiteLLM key and meters every call for the FinOps and AIOps dashboards.
 
-## Enterprise V1 Scope
+## Enterprise Scope
 
 - React/Vite frontend prepared for S3 + CloudFront default HTTPS hosting.
 - FastAPI backend prepared for ECS Fargate as a synchronous AI Gateway.
-- Async Groq calls with connection pooling.
+- **LiteLLM forward proxy** for all model calls (chat answers and Ragas/TruLens judges): model groups, retries, fallbacks, budgets, metered cost.
+- **FinOps dashboard** (`finops`/`admin` roles): spend by model, tenant, user, purpose; unit economics; monthly budget gauge.
+- **AIOps dashboard** (`aiops`/`admin` roles): availability, p50/p95/p99 latency, error classes, retries/fallbacks, live dependency health.
 - Cognito/JWT-ready authentication with local development fallback.
-- User-scoped audit records.
-- Guardrail violation records and reporting APIs.
+- User-scoped audit records, guardrail violation records and reporting APIs.
 - Aurora PostgreSQL-ready SQLAlchemy models.
-- Production backend Dockerfile.
-- Terragrunt/Terraform infrastructure blueprint.
+- Production backend Dockerfile; Docker Compose local stack (Jaeger, Postgres, LiteLLM).
+- Terragrunt/Terraform infrastructure including the `ecs-litellm-proxy` module.
 
 ## Architecture Documents
 
-- [Architecture Blueprint](docs/ARCHITECTURE_BLUEPRINT.md)
+- [Architecture Design Document](docs/ARCHITECTURE_DESIGN.md) — current-state review, requirements, target architecture, ADRs, FinOps/AIOps design
+- [Roadmap](docs/ROADMAP.md) — Sprint 1 (done) through Sprint 6
+- [Technical Debt Register](docs/TECH_DEBT.md)
+- [Architecture Blueprint](docs/ARCHITECTURE_BLUEPRINT.md) (v1 shape)
 - [AWS Service Mapping](docs/AWS_SERVICE_MAPPING.md)
 - [Migration Plan](docs/MIGRATION_PLAN.md)
+- [Claude AI Development Cycle](docs/claude-development-cycle/README.md)
 
 ## Target AWS Architecture
 
@@ -35,38 +41,78 @@ User
 
 React app
   -> API Gateway HTTP API default HTTPS endpoint
-  -> ECS Fargate AI Gateway
-  -> Groq API
-  -> ECS Fargate AI Gateway
-  -> React app
+  -> ECS Fargate AI Gateway (policy enforcement, metering)
+  -> ECS Fargate LiteLLM proxy (provider keys, routing, budgets)
+  -> Groq / Amazon Bedrock / OpenAI
+  -> back through the same path to the React app
 
 AI Gateway
   -> Cognito JWT validation
-  -> Aurora PostgreSQL
-  -> Secrets Manager / Parameter Store
+  -> Aurora PostgreSQL (audit, policies, llm_usage_events)
+  -> Secrets Manager (LiteLLM virtual key) / Parameter Store
   -> CloudWatch / X-Ray / OpenTelemetry
+
+LiteLLM proxy
+  -> Secrets Manager (master key, provider keys)
+  -> S3 (litellm/config.yaml)
+  -> Aurora PostgreSQL (virtual keys, spend log)
 ```
 
 ## Local Development
 
-Backend:
+1. Start the local stack (Jaeger, Postgres, LiteLLM proxy). Compose reads `GROQ_API_KEY` from `backend/.env` for the proxy container:
+
+   ```bash
+   cp backend/.env.example backend/.env   # first time; set GROQ_API_KEY
+   docker compose up -d
+   ```
+
+2. Backend (talks to the proxy at `http://localhost:4000`; it does not use `GROQ_API_KEY` itself):
+
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+3. Frontend:
+
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+Keep `AUTH_REQUIRED=false` for local development (the local user is an admin and sees every dashboard). In AWS, set `AUTH_REQUIRED=true`; Cognito groups `admin`, `policy-manager`, `finops` and `aiops` gate the screens.
+
+### Offline / zero-spend mode
+
+Run the stack against a local OpenAI-compatible mock instead of Groq (also what CI should use):
 
 ```bash
-cd Responsible-AI-EnterpriseReady/backend
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+backend/venv/bin/python tests/mock_llm_upstream.py --port 4010 &
+docker compose -f docker-compose.yml -f docker-compose.mock.yml up -d litellm
 ```
 
-Frontend:
+`litellm/config.mock.yaml` prices the mock models so the proxy still returns `x-litellm-response-cost`, and adds `mock-fail` / `mock-slow` chaos models for the AIOps dashboard.
+
+### Useful endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /gateway/health` | LiteLLM reachability, models served, credential-boundary check |
+| `GET /gateway/models` | Models the chat UI may select |
+| `GET /reports/finops?days=30` | FinOps report (`finops`/`admin`) |
+| `GET /reports/aiops?hours=24` | AIOps report (`aiops`/`admin`) |
+| `http://localhost:16686` | Jaeger: `responsible-ai-chat-agent` and `litellm-proxy` services |
+| `http://localhost:4000/ui` | LiteLLM admin UI (master key) |
+
+### Tests
 
 ```bash
-cd Responsible-AI-EnterpriseReady/frontend
-npm install
-npm run dev
+cd backend && ./venv/bin/python -m unittest discover -s tests -v      # unit tests (no proxy needed)
+backend/venv/bin/python tests/run_scenarios.py                        # integration scenarios against a running gateway
 ```
-
-Set `GROQ_API_KEY` in `backend/.env` for real Groq calls. Keep `AUTH_REQUIRED=false` for local development. In AWS, set `AUTH_REQUIRED=true` and configure Cognito settings through Secrets Manager / Parameter Store.
 
 ## Original Prototype Notes
 

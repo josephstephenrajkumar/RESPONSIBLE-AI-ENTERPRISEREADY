@@ -1,5 +1,9 @@
 # Responsible AI EnterpriseReady Architecture Blueprint
 
+> This blueprint describes the v1 shape. The current target architecture, including the
+> LiteLLM model gateway, FinOps and AIOps, is in [ARCHITECTURE_DESIGN.md](ARCHITECTURE_DESIGN.md);
+> the delivery plan is in [ROADMAP.md](ROADMAP.md).
+
 ## Executive Summary
 
 This project turns the original Responsible AI Chat Agent prototype into an enterprise-oriented AI Gateway. The gateway preserves the natural synchronous chat flow while enforcing responsible-AI policy around the request and response pipe.

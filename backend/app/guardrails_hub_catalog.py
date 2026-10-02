@@ -3,7 +3,6 @@ import html
 import os
 from pathlib import Path
 import re
-import shutil
 import site
 import subprocess
 import sys
@@ -12,7 +11,6 @@ from typing import Any, Dict, List
 
 import httpx
 
-from app.config import Settings
 from app.telemetry import tracer
 
 
@@ -43,17 +41,9 @@ RECOMMENDED_HUB_VALIDATORS = [
         'metadata': {'recommended': True, 'why': 'Runtime safety'},
         'requires_model': True,
     },
-    {
-        'hub_uri': 'hub://guardrails/grounded_ai_hallucination',
-        'validator_class': 'GroundedAIHallucination',
-        'name': 'Grounded AI Hallucination',
-        'category': 'factuality',
-        'severity': 'high',
-        'description': 'Detects hallucinated text against grounding context.',
-        'runtime_params': {},
-        'metadata': {'recommended': True, 'why': 'RAG verification and trustworthiness'},
-        'requires_model': False,
-    },
+    # NOTE: hub://guardrails/grounded_ai_hallucination was removed from this list
+    # because it no longer exists upstream - neither the Hub validator page nor a
+    # `guardrails-ai-grounded-ai-hallucination` PyPI package resolve (both 404).
     {
         'hub_uri': 'hub://guardrails/bias_check',
         'validator_class': 'BiasCheck',
@@ -116,7 +106,9 @@ RECOMMENDED_HUB_VALIDATORS = [
         'category': 'privacy',
         'severity': 'high',
         'description': 'Detects personally identifiable information in text.',
-        'runtime_params': {},
+        # `entities` is a required constructor argument; 'pii' selects the
+        # validator's own standard PII entity set (GuardrailsPII.PII_ENTITIES_MAP).
+        'runtime_params': {'entities': 'pii'},
         'metadata': {'recommended': True, 'why': 'PII detection and redaction'},
         'requires_model': False,
     },
@@ -166,13 +158,19 @@ def _class_is_importable(validator_class: str) -> bool:
 
 
 def _module_name_from_hub_uri(hub_uri: str) -> str:
+    # Guardrails Hub validators are now plain public PyPI packages under the
+    # `guardrails_ai` namespace (no auth/CLI install step) - see
+    # https://guardrailsai.com/hub/keys. `hub://<namespace>/<slug>` imports as
+    # `guardrails_ai.<slug>` regardless of `<namespace>`.
     validator_id = hub_uri.replace('hub://', '')
-    namespace, package = validator_id.split('/', 1)
-    return f'{namespace}_grhub_{package}'.replace('-', '_')
+    _namespace, package = validator_id.split('/', 1)
+    return f'guardrails_ai.{package}'.replace('-', '_')
 
 
-def _guardrails_command() -> str | None:
-    return shutil.which('guardrails') or str(Path(sys.executable).with_name('guardrails'))
+def _pypi_package_name_from_hub_uri(hub_uri: str) -> str:
+    validator_id = hub_uri.replace('hub://', '')
+    _namespace, package = validator_id.split('/', 1)
+    return f'guardrails-ai-{package}'.replace('_', '-')
 
 
 def _ensure_user_site() -> str:
@@ -316,37 +314,22 @@ def list_hub_validators() -> List[Dict[str, Any]]:
             {
                 **item,
                 'installed': _class_is_importable(item['validator_class']),
-                'token_required': True,
-                'token_configured': bool(Settings.GUARDRAILS_TOKEN),
+                # Guardrails Hub validators are public PyPI packages as of the
+                # current Hub - no account or token is required to install them.
+                'token_required': False,
+                'token_configured': True,
             }
             for item in catalog
         ]
 
 
-def _configure_guardrails_token() -> None:
-    if not Settings.GUARDRAILS_TOKEN:
-        return
-
-    home = Path.home()
-    rc_path = home / '.guardrailsrc'
-    rc_path.write_text(
-        '\n'.join([
-            'id=responsible-ai-enterprise-ready',
-            f'token={Settings.GUARDRAILS_TOKEN}',
-            'enable_metrics=false',
-            'use_remote_inferencing=false',
-        ]),
-        encoding='utf-8',
-    )
-    rc_path.chmod(0o600)
-
-
 def _friendly_install_error(stderr: str) -> str:
     text = stderr or ''
-    if '401' in text or 'Unauthorized' in text or 'token is invalid' in text:
+    if 'No matching distribution' in text or 'ERROR: Could not find a version' in text:
         return (
-            'Guardrails Hub requires a valid Guardrails Hub token to install validators. '
-            'Set GUARDRAILS_TOKEN from https://guardrailsai.com/hub/keys, then redeploy the backend.'
+            'No matching PyPI package was found for this validator. The Guardrails '
+            'Hub catalog entry may be stale (renamed or removed upstream) - check '
+            'https://guardrailsai.com/hub for the current package name.'
         )
     return text[-2000:] or 'Install failed.'
 
@@ -359,49 +342,42 @@ def install_hub_validator(hub_uri: str, install_local_models: bool = False) -> D
         slug = hub_uri.rsplit('/', 1)[-1]
         catalog_item = _validator_from_hub_link(hub_uri.replace('hub://', '').split('/', 1)[0], slug)
 
-    if not Settings.GUARDRAILS_TOKEN:
-        return {
-            'status': 'token_required',
-            'hub_uri': hub_uri,
-            'installed': False,
-            'error': (
-                'Guardrails Hub validator installation requires a Guardrails Hub token. '
-                'Create one at https://guardrailsai.com/hub/keys and set GUARDRAILS_TOKEN in the backend environment.'
-            ),
-        }
-
-    command = _guardrails_command()
-    if not command:
-        return {'status': 'error', 'hub_uri': hub_uri, 'error': 'guardrails CLI is not available in PATH'}
-
-    args = [command, 'hub', 'install', hub_uri]
-    args.append('--install-local-models' if install_local_models else '--no-install-local-models')
+    # As of the current Guardrails Hub, every validator is a plain public PyPI
+    # package (no account/token/CLI hub-install step required) - see
+    # https://guardrailsai.com/hub/keys. Install it directly with pip.
+    package_name = _pypi_package_name_from_hub_uri(hub_uri)
+    base_args = [sys.executable, '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check']
 
     with tracer.start_as_current_span('guardrails_hub.install') as span:
         span.set_attribute('guardrails.hub_uri', hub_uri)
-        venv_bin = str(Path(sys.executable).parent)
-        user_site = _ensure_user_site()
-        python_path = os.pathsep.join(
-            path for path in [user_site, os.environ.get('PYTHONPATH', '')] if path
-        )
-        install_env = {
-            **os.environ,
-            'PATH': venv_bin + os.pathsep + os.environ.get('PATH', ''),
-            'VIRTUAL_ENV': sys.prefix,
-            'GUARDRAILS_INSTALLER': 'pip',
-            'PIP_USER': '1',
-            'PYTHONPATH': python_path,
-        }
+        span.set_attribute('guardrails.pypi_package', package_name)
         try:
-            _configure_guardrails_token()
+            # Plain install into the current environment - correct for a venv
+            # (this backend's normal local/Docker deployment). `pip install
+            # --user` is rejected inside a venv ("user site-packages are not
+            # visible"), so only fall back to --user if the plain install fails
+            # for a permission reason (e.g. a non-venv, non-root runtime).
             completed = subprocess.run(
-                args,
+                [*base_args, package_name],
                 check=False,
                 capture_output=True,
                 text=True,
                 timeout=180,
-                env=install_env,
             )
+            if completed.returncode != 0 and re.search(r'permission denied|errno 13', completed.stderr, re.IGNORECASE):
+                user_site = _ensure_user_site()
+                python_path = os.pathsep.join(
+                    path for path in [user_site, os.environ.get('PYTHONPATH', '')] if path
+                )
+                install_env = {**os.environ, 'PIP_USER': '1', 'PYTHONPATH': python_path}
+                completed = subprocess.run(
+                    [*base_args, '--user', package_name],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    env=install_env,
+                )
         except subprocess.TimeoutExpired:
             return {'status': 'error', 'hub_uri': hub_uri, 'error': 'Installation timed out'}
         except Exception as exc:
@@ -412,6 +388,7 @@ def install_hub_validator(hub_uri: str, install_local_models: bool = False) -> D
     return {
         'status': 'installed' if completed.returncode == 0 and installed else 'error',
         'hub_uri': hub_uri,
+        'pypi_package': package_name,
         'validator_class': catalog_item['validator_class'],
         'installed': installed,
         'returncode': completed.returncode,

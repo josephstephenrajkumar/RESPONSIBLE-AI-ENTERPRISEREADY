@@ -28,8 +28,54 @@ variable "image_tag" {
   default = "latest"
 }
 
-variable "groq_api_key_secret_arn" {
+# ---------------------------------------------------------------------------
+# LLM egress. In `proxy` mode the gateway talks to the LiteLLM proxy with a
+# virtual key and holds no provider credential; groq_api_key_secret_arn is
+# only wired into the task when llm_gateway_mode = "direct".
+# ---------------------------------------------------------------------------
+variable "llm_gateway_mode" {
+  type    = string
+  default = "proxy"
+
+  validation {
+    condition     = contains(["proxy", "direct"], var.llm_gateway_mode)
+    error_message = "llm_gateway_mode must be proxy or direct."
+  }
+}
+
+variable "litellm_proxy_url" {
+  type    = string
+  default = ""
+}
+
+variable "litellm_api_key_secret_arn" {
+  description = "Secrets Manager ARN of the LiteLLM virtual key issued to this gateway."
+  type        = string
+  default     = ""
+}
+
+variable "llm_default_model" {
   type = string
+}
+
+variable "llm_judge_model" {
+  type    = string
+  default = ""
+}
+
+variable "llm_allowed_models" {
+  type    = string
+  default = ""
+}
+
+variable "finops_monthly_budget_usd" {
+  type    = number
+  default = 0
+}
+
+variable "groq_api_key_secret_arn" {
+  type    = string
+  default = ""
 }
 
 variable "guardrails_token_secret_arn" {
@@ -68,12 +114,9 @@ variable "auth_required" {
   default = false
 }
 
-variable "groq_model" {
-  type = string
-}
-
 variable "groq_api_url" {
-  type = string
+  type    = string
+  default = "https://api.groq.com/openai/v1"
 }
 
 variable "jaeger_ui_url" {
@@ -109,6 +152,16 @@ variable "tags" {
 locals {
   name      = "${var.project_name}-${var.environment}"
   image_uri = "${var.ecr_repository_url}:${var.image_tag}"
+
+  # Only the secrets the selected mode needs are mounted into the task.
+  llm_secrets = concat(
+    var.llm_gateway_mode == "proxy" && var.litellm_api_key_secret_arn != "" ? [
+      { name = "LITELLM_API_KEY", valueFrom = var.litellm_api_key_secret_arn }
+    ] : [],
+    var.llm_gateway_mode == "direct" && var.groq_api_key_secret_arn != "" ? [
+      { name = "GROQ_API_KEY", valueFrom = var.groq_api_key_secret_arn }
+    ] : [],
+  )
 }
 
 resource "aws_cloudwatch_log_group" "this" {
@@ -261,6 +314,7 @@ resource "aws_iam_role_policy" "execution_secrets" {
           "kms:Decrypt"
         ]
         Resource = compact([
+          var.litellm_api_key_secret_arn,
           var.groq_api_key_secret_arn,
           var.guardrails_token_secret_arn
         ])
@@ -338,7 +392,13 @@ resource "aws_ecs_task_definition" "this" {
         { name = "COGNITO_DOMAIN", value = var.cognito_domain },
         { name = "COGNITO_ISSUER", value = var.cognito_issuer },
         { name = "DATABASE_URL", value = var.database_url },
-        { name = "GROQ_MODEL", value = var.groq_model },
+        { name = "LLM_GATEWAY_MODE", value = var.llm_gateway_mode },
+        { name = "LITELLM_PROXY_URL", value = var.litellm_proxy_url },
+        { name = "LLM_DEFAULT_MODEL", value = var.llm_default_model },
+        { name = "LLM_JUDGE_MODEL", value = var.llm_judge_model },
+        { name = "LLM_ALLOWED_MODELS", value = var.llm_allowed_models },
+        { name = "FINOPS_MONTHLY_BUDGET_USD", value = tostring(var.finops_monthly_budget_usd) },
+        { name = "GROQ_MODEL", value = var.llm_default_model },
         { name = "GROQ_API_URL", value = var.groq_api_url },
         { name = "FRONTEND_ORIGINS", value = var.frontend_origins },
         { name = "OTEL_SERVICE_NAME", value = "${local.name}-ai-gateway" },
@@ -347,9 +407,7 @@ resource "aws_ecs_task_definition" "this" {
         { name = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", value = "http://127.0.0.1:4318/v1/traces" }
       ]
       secrets = concat(
-        [
-          { name = "GROQ_API_KEY", valueFrom = var.groq_api_key_secret_arn }
-        ],
+        local.llm_secrets,
         var.guardrails_token_secret_arn == "" ? [] : [
           { name = "GUARDRAILS_TOKEN", valueFrom = var.guardrails_token_secret_arn }
         ]

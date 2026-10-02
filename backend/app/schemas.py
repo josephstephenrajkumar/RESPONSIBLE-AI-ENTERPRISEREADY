@@ -9,7 +9,8 @@ class Mode(str, Enum):
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     mode: Mode = Mode.code
-    model: str = Field(default='llama-3.3-70b-versatile')
+    # Empty means "use the gateway's configured default model" (LLM_DEFAULT_MODEL).
+    model: str = Field(default='')
     temperature: float = Field(default=0.2, ge=0.0, le=1.0)
     max_tokens: int = Field(default=800, ge=1, le=2000)
     explain: bool = Field(default=True)
@@ -28,6 +29,28 @@ class ResponsibleAIResponse(BaseModel):
     governance: dict = Field(default_factory=dict)
     controllability: dict = Field(default_factory=dict)
 
+class UsageMetadata(BaseModel):
+    """Per-response metering surfaced to the client for transparency.
+
+    Populated from the LiteLLM proxy response (tokens from the body, cost and
+    routing details from x-litellm-* headers). cost_source tells the reader
+    whether the figure is LiteLLM's metered cost or a local estimate.
+    """
+    gateway: str = 'litellm'
+    served_model: str = ''
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cost_usd: float | None = None
+    cost_source: str = 'unknown'
+    latency_ms: int = 0
+    proxy_overhead_ms: int | None = None
+    retries: int = 0
+    fallbacks: int = 0
+    status: str = 'success'
+    error_type: str = ''
+
+
 class MetadataResponse(BaseModel):
     model: str
     provider: str
@@ -38,6 +61,7 @@ class MetadataResponse(BaseModel):
     client_id: str = ''
     agent_id: str = ''
     session_id: str = ''
+    usage: UsageMetadata = Field(default_factory=UsageMetadata)
 
 class ChatResponse(BaseModel):
     answer: str

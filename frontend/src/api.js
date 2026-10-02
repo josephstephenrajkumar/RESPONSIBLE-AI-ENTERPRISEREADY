@@ -167,3 +167,33 @@ export async function fetchGuardrailReport(userId = '') {
   const response = await fetch(`${API_BASE}/reports/guardrails${query}`, { headers: authHeaders() })
   return parseResponse(response)
 }
+
+export async function fetchEvaluationReport(limit = 200) {
+  const response = await fetch(`${API_BASE}/reports/evaluations?limit=${limit}`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function fetchSafetyReport(limit = 200) {
+  const response = await fetch(`${API_BASE}/reports/safety?limit=${limit}`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function fetchFinopsReport(days = 30) {
+  const response = await fetch(`${API_BASE}/reports/finops?days=${days}`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function fetchAiopsReport(hours = 24) {
+  const response = await fetch(`${API_BASE}/reports/aiops?hours=${hours}`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function fetchGatewayHealth() {
+  const response = await fetch(`${API_BASE}/gateway/health`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function fetchGatewayModels() {
+  const response = await fetch(`${API_BASE}/gateway/models`, { headers: authHeaders() })
+  return parseResponse(response)
+}

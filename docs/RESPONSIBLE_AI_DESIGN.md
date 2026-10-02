@@ -90,24 +90,28 @@ Responsibilities:
 - exposes health, root, observability, policy, audit, and chat APIs
 - owns the end-to-end `/chat` workflow span tree
 
-### 3.3 LLM Provider Adapter
+### 3.3 LLM Gateway Client
 
-Location: `backend/app/groq_client.py`
+Location: `backend/app/llm_client.py` (replaces the former `groq_client.py`; see
+[ARCHITECTURE_DESIGN.md](ARCHITECTURE_DESIGN.md) section 4)
 
 Responsibilities:
 
-- loads provider settings from `Settings`
-- builds the responsible system prompt
-- sends `POST {GROQ_API_URL}/chat/completions`
-- returns a normalized response dict
-- provides safe fallback when `GROQ_API_KEY` or `httpx` is unavailable
-- uses Langfuse decorators for framework-mode calls when Langfuse is configured
+- the single egress for every model call: chat answers and the Ragas/TruLens judge calls
+- sends `POST {LITELLM_PROXY_URL}/chat/completions` with a LiteLLM virtual key; the
+  application never holds a provider key in `proxy` mode
+- forwards `user` and `metadata.tags` (tenant, client, agent, purpose) for proxy-side spend attribution
+- reads `x-litellm-*` response headers (cost, call id, retries, fallbacks, overhead)
+- records one `llm_usage_events` row per call for the FinOps and AIOps dashboards
+- returns a normalized response dict, never raising to the caller
+- uses Langfuse decorators for framework-mode calls when Langfuse is configured on the app
 
 Provider states:
 
-- `provider='groq'`: Groq request succeeded.
-- `provider='groq-error'`: Groq request ran but failed.
-- `provider='groq-fallback'`: no API key or `httpx` missing.
+- `provider='litellm'`: proxy request succeeded.
+- `provider='litellm-error'`: proxy request ran but failed (status, error type and HTTP code recorded).
+- `provider='litellm-fallback'`: proxy not configured.
+- `provider='groq*'`: same states in the break-glass `LLM_GATEWAY_MODE=direct`.
 
 ### 3.4 Responsible AI Evaluators
 
@@ -133,10 +137,10 @@ Responsible AI pillars:
 - `langfuse_observability.py`
 - `presidio_privacy.py`: implemented Microsoft Presidio privacy detection/redaction with regex fallback.
 - `guardrails_safety.py`: implemented Guardrails AI safety validation with a local custom validator.
-- `trulens_eval.py`: lightweight placeholder for explainability evaluation.
-- `ragas_eval.py`: lightweight placeholder for fairness/verifiability-style evaluation.
+- `trulens_eval.py`: implemented TruLens (`trulens-core`/`trulens-feedback`) LLM-graded explainability scoring, judged by the same Groq deployment used for chat, with a heuristic fallback if TruLens or the judge call is unavailable.
+- `ragas_eval.py`: implemented Ragas (`AspectCritic`) LLM-graded fairness/bias scoring, judged by the same Groq deployment used for chat, with a heuristic fallback if Ragas or the judge call is unavailable.
 
-Presidio and Guardrails AI are active framework-mode integrations. TruLens and Ragas remain intentionally isolated placeholders so real evaluators can replace them later.
+Presidio, Guardrails AI, TruLens, and Ragas are all active framework-mode integrations. Aggregate fairness/explainability trends are available via `GET /reports/evaluations` and the admin "Evaluation Dashboard" panel in the frontend.
 
 Framework-mode Guardrails safety rules are currently starter policy rules embedded in Python. They should become versioned policy metadata or database-backed policy configuration before production use.
 
@@ -346,19 +350,21 @@ Pydantic contracts:
 - `AuditEvent`
 - `PolicyResponse`
 
-### 5.3 `groq_client.py`
+### 5.3 `llm_client.py`
 
 Main methods:
 
-- `send_prompt(...)`
-  - public entrypoint
-  - dispatches framework mode through `_send_prompt_observed(...)` when Langfuse is configured
-- `_send_prompt_observed(...)`
-  - decorated with Langfuse `@observe`
-  - calls `_send_prompt(...)`
-  - updates active Langfuse trace/observation
-- `_send_prompt(...)`
-  - performs the real provider call or fallback behavior
+- `chat(message, model, temperature, max_tokens, observe)`
+  - entrypoint used by `/chat`: system prompt + user turn, `purpose='chat'`
+- `complete(messages, model, temperature, max_tokens, purpose, observe)`
+  - async entrypoint used by the Ragas judge (`purpose='judge_fairness'`)
+  - dispatches through `_complete_observed(...)` (Langfuse `@observe`) when requested and configured
+- `complete_sync(...)`
+  - blocking variant used by the TruLens provider hook (`purpose='judge_explainability'`)
+- `health()` / `list_models()`
+  - live proxy checks behind `/gateway/health` and `/gateway/models`
+- `bind_request_context(...)` / `reset_request_context(...)`
+  - module-level context binding so judge calls inherit the chat request's user/tenant attribution
 
 ### 5.4 `database.py`
 
@@ -722,7 +728,7 @@ sqlite3 backend/app/storage/responsible_ai.db \
 ## 12. Known Limitations
 
 - Guardrails AI safety rules are currently starter policy rules embedded in Python instead of versioned policy metadata.
-- TruLens and Ragas framework-mode modules are currently lightweight stand-ins.
+- TruLens and Ragas judge calls run through a minimal custom Groq-backed adapter rather than a full instrumented `TruApp`/`TruChain` session or `ragas.evaluate()` batch pipeline; this keeps `/chat` synchronous and avoids a second persistence layer, but means TruLens/Ragas-native dashboards (as opposed to this app's own `/reports/evaluations`) aren't available.
 - SQLite is not recommended for multi-instance production deployment.
 - No authentication is implemented yet.
 - No Alembic migration history is configured yet.
@@ -731,7 +737,6 @@ sqlite3 backend/app/storage/responsible_ai.db \
 ## 13. Future Enhancements
 
 - Move Guardrails AI policy rules into versioned metadata or database-backed policy configuration.
-- Replace remaining TruLens and Ragas placeholders with real framework integrations.
 - Add Postgres and Alembic.
 - Add authentication and role-based access.
 - Add audit retention job.

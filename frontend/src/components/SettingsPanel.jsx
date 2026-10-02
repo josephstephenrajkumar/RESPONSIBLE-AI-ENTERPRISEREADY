@@ -1,5 +1,28 @@
+import { useEffect, useState } from 'react'
+import { fetchGatewayModels } from '../api'
+
 export default function SettingsPanel({ settings, onChange }) {
   const update = (field, value) => onChange({ ...settings, [field]: value })
+  const [models, setModels] = useState(null)
+  const [gatewayNote, setGatewayNote] = useState('')
+
+  // The model list is whatever the LiteLLM proxy currently serves (filtered by
+  // the gateway allowlist), so operators can add or re-route models in
+  // litellm/config.yaml without a frontend change.
+  useEffect(() => {
+    fetchGatewayModels()
+      .then(data => {
+        setModels(data.models || [])
+        setGatewayNote(`${data.gateway_mode === 'proxy' ? 'LiteLLM proxy' : 'direct provider'} · judge: ${data.judge_model}`)
+      })
+      .catch(err => {
+        setModels([])
+        setGatewayNote(`Model list unavailable: ${err.message}`)
+      })
+  }, [])
+
+  const hasList = Array.isArray(models) && models.length > 0
+  const currentInList = hasList && models.includes(settings.model)
 
   return (
     <div className="panel">
@@ -13,7 +36,15 @@ export default function SettingsPanel({ settings, onChange }) {
       </div>
       <div className="field">
         <label>Model</label>
-        <input value={settings.model} onChange={(event) => update('model', event.target.value)} />
+        {hasList ? (
+          <select value={currentInList ? settings.model : ''} onChange={(event) => update('model', event.target.value)}>
+            {!currentInList && <option value="">{settings.model ? `${settings.model} (not served)` : 'Gateway default'}</option>}
+            {models.map(model => <option key={model} value={model}>{model}</option>)}
+          </select>
+        ) : (
+          <input value={settings.model} onChange={(event) => update('model', event.target.value)} />
+        )}
+        {gatewayNote && <span className="muted field-note">{gatewayNote}</span>}
       </div>
       <div className="field">
         <label>Temperature</label>

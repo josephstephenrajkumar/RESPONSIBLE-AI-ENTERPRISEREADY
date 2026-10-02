@@ -63,6 +63,11 @@ variable "allow_signup" {
   default = true
 }
 
+variable "allow_admin_user_password_auth" {
+  type    = bool
+  default = false
+}
+
 variable "domain_prefix" {
   type    = string
   default = ""
@@ -125,10 +130,13 @@ resource "aws_cognito_user_pool_client" "this" {
   supported_identity_providers         = ["COGNITO"]
   prevent_user_existence_errors        = "ENABLED"
 
-  explicit_auth_flows = [
-    "ALLOW_REFRESH_TOKEN_AUTH",
-    "ALLOW_USER_SRP_AUTH",
-  ]
+  # ADMIN_USER_PASSWORD_AUTH is only enabled where scripted smoke tests need a
+  # token without a browser (dev). It requires IAM credentials to call, so it
+  # does not weaken the hosted-UI PKCE flow used by the frontend.
+  explicit_auth_flows = concat(
+    ["ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_SRP_AUTH"],
+    var.allow_admin_user_password_auth ? ["ALLOW_ADMIN_USER_PASSWORD_AUTH"] : [],
+  )
 }
 
 resource "aws_cognito_user_group" "admin" {
@@ -147,6 +155,19 @@ resource "aws_cognito_user_group" "guardrails_admin" {
   name         = "guardrails-admin"
   user_pool_id = aws_cognito_user_pool.this.id
   description  = "Guardrails Hub validator administrators"
+}
+
+# Operational dashboard roles (see docs/ARCHITECTURE_DESIGN.md §4.5).
+resource "aws_cognito_user_group" "finops" {
+  name         = "finops"
+  user_pool_id = aws_cognito_user_pool.this.id
+  description  = "Users who can view LLM spend, budgets and unit economics (FinOps dashboard)"
+}
+
+resource "aws_cognito_user_group" "aiops" {
+  name         = "aiops"
+  user_pool_id = aws_cognito_user_pool.this.id
+  description  = "Users who can view LLM availability, latency and dependency health (AIOps dashboard)"
 }
 
 resource "aws_cognito_user_pool_domain" "this" {

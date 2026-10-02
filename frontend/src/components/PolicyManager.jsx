@@ -17,7 +17,11 @@ import PolicyEditor from './PolicyEditor'
 import PolicyTable from './PolicyTable'
 import PolicyTestLab from './PolicyTestLab'
 
-export default function PolicyManager({ user }) {
+// `view` selects which half of the policy surface to render, while keeping all
+// policy state and mutations in one place:
+//   'dashboards'    - read-only monitoring (governance summary)
+//   'configuration' - the editing surface (hub catalog, editor, registry, test lab)
+export default function PolicyManager({ user, view = 'configuration' }) {
   const [policies, setPolicies] = useState([])
   const [editing, setEditing] = useState(null)
   const [approving, setApproving] = useState(null)
@@ -86,9 +90,14 @@ export default function PolicyManager({ user }) {
     setTesting(false)
   }
 
+  if (view === 'dashboards') {
+    return (
+      <GovernanceDashboard policies={policies} reloadInfo={reloadInfo} onReload={runReload} />
+    )
+  }
+
   return (
     <div className="policy-manager-grid">
-      <GovernanceDashboard policies={policies} reloadInfo={reloadInfo} onReload={runReload} />
       <HubValidatorCatalog onImportDraft={submitPolicy} canManage={canManage} />
       <PolicyEditor policy={editing} onSubmit={submitPolicy} onCancel={() => setEditing(null)} />
       <PolicyTable

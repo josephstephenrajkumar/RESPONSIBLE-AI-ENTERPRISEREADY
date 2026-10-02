@@ -4,19 +4,29 @@ from datetime import datetime
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.auth import (
     AuthenticatedUser,
     auth_runtime_config,
     get_current_user,
+    require_aiops_viewer,
+    require_finops_viewer,
     require_policy_manager,
     user_can_manage_policies,
+    user_can_view_aiops,
+    user_can_view_finops,
 )
 from app.config import Settings
 from app.database import (
     append_audit_event,
     append_guardrail_violations,
     engine,
+    get_aiops_summary,
+    get_audit_block_stats,
+    get_eval_metrics_summary,
+    get_finops_summary,
+    get_safety_metrics_summary,
     get_guardrail_report,
     get_policy_payload,
     get_recent_audit_events,
@@ -38,8 +48,9 @@ from app.schemas import (
     SafetyPolicyCreate,
     SafetyHubPolicyImport,
     SafetyPolicyUpdate,
+    UsageMetadata,
 )
-from app.groq_client import groq_client
+from app.llm_client import bind_request_context, llm_client, reset_request_context
 from app.responsible_ai import (
     evaluate_privacy as code_privacy,
     evaluate_safety as code_safety,
@@ -58,12 +69,19 @@ from app.framework_mode import (
     evaluate_explainability as framework_explainability,
     evaluate_fairness as framework_fairness
 )
-from app.framework_mode.guardrails_safety import reload_safety_policies, test_safety_policy
+from app.framework_mode.guardrails_safety import (
+    get_active_policy_version,
+    get_validator_health,
+    reload_safety_policies,
+    test_safety_policy,
+)
+from app.framework_mode.langfuse_observability import is_langfuse_configured
 from app.policy_governance import (
     activate_policy,
     approve_policy,
     create_policy,
     delete_policy,
+    get_auto_disable_reasons,
     list_policies,
     update_policy,
 )
@@ -92,12 +110,34 @@ def startup_event():
 
 @app.on_event('shutdown')
 async def shutdown_event():
-    await groq_client.close()
+    await llm_client.close()
 
 
 @app.get('/health')
 def health():
     return {'status': 'ok', 'service': 'responsible-ai-chat-agent'}
+
+
+@app.get('/gateway/health')
+async def gateway_health(user: AuthenticatedUser = Depends(get_current_user)):
+    """Live check of the LLM egress path (LiteLLM proxy reachability and models)."""
+    return await llm_client.health()
+
+
+@app.get('/gateway/models')
+async def gateway_models(user: AuthenticatedUser = Depends(get_current_user)):
+    try:
+        models = await llm_client.list_models()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f'LLM gateway is not reachable: {exc}') from exc
+    if Settings.LLM_ALLOWED_MODELS:
+        models = [model for model in models if model in Settings.LLM_ALLOWED_MODELS]
+    return {
+        'default_model': llm_client.default_model,
+        'judge_model': llm_client.judge_model,
+        'models': models,
+        'gateway_mode': llm_client.mode,
+    }
 
 
 @app.get('/')
@@ -203,12 +243,41 @@ def _extract_violation_records(request, user, metadata, safety_result):
 
 @app.post('/chat', response_model=ChatResponse)
 async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_current_user)):
+    requested_model = llm_client.resolve_model(request.model, 'chat')
+    if not llm_client.model_allowed(requested_model):
+        raise HTTPException(
+            status_code=400,
+            detail=f'Model {requested_model!r} is not in the gateway allowlist: {Settings.LLM_ALLOWED_MODELS}',
+        )
+    request.model = requested_model
+
+    # Bind caller identity once so every model call in this request (answer +
+    # judge calls) is metered against the same user/tenant/request.
+    gateway_request_id = str(uuid.uuid4())
+    context_token = bind_request_context(
+        request_id=gateway_request_id,
+        user_id=user.user_id,
+        user_email=user.email,
+        tenant_id=user.tenant_id,
+        client_id=request.client_id,
+        agent_id=request.agent_id,
+        session_id=request.session_id,
+        mode=request.mode.value,
+    )
+    try:
+        return await _chat(request, user, gateway_request_id)
+    finally:
+        reset_request_context(context_token)
+
+
+async def _chat(request: ChatRequest, user: AuthenticatedUser, gateway_request_id: str) -> ChatResponse:
     with tracer.start_as_current_span('chat.request') as span:
         upsert_user_profile(user)
         span.set_attribute('chat.mode', request.mode.value)
         span.set_attribute('chat.model', request.model)
         span.set_attribute('chat.temperature', request.temperature)
         span.set_attribute('chat.max_tokens', request.max_tokens)
+        span.set_attribute('chat.request_id', gateway_request_id)
         span.set_attribute('enduser.id', user.user_id)
         span.set_attribute('tenant.id', user.tenant_id)
         span.set_attribute('client.id', request.client_id)
@@ -240,25 +309,33 @@ async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_curre
                     ),
                     'provider': 'guardrails-policy',
                     'model': request.model,
-                    'request_id': str(uuid.uuid4()),
+                    'request_id': gateway_request_id,
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'tokens': 0,
+                    'status': 'blocked',
                     'metadata': {'blocked_by': 'guardrails_ai_safety_policy'}
                 }
 
         if response is None:
-            with tracer.start_as_current_span('groq_api_call') as groq_span:
-                response = await groq_client.send_prompt(
+            with tracer.start_as_current_span('llm_gateway_call') as llm_span:
+                response = await llm_client.chat(
                     llm_message,
+                    model=request.model,
                     temperature=request.temperature,
                     max_tokens=request.max_tokens,
-                    explain=request.explain,
-                    verify=request.verify,
-                    mode=request.mode.value
+                    observe=request.mode == 'framework',
                 )
-                groq_span.set_attribute('llm.provider', response.get('provider', 'unknown'))
-                groq_span.set_attribute('llm.model', response.get('model', request.model))
-                groq_span.set_attribute('llm.request_id', response.get('request_id', ''))
+                # Keep one request id across the audit event, the usage rows and
+                # the client-visible metadata.
+                response['request_id'] = gateway_request_id
+                llm_span.set_attribute('llm.gateway_mode', llm_client.mode)
+                llm_span.set_attribute('llm.provider', response.get('provider', 'unknown'))
+                llm_span.set_attribute('llm.model', response.get('served_model') or request.model)
+                llm_span.set_attribute('llm.status', response.get('status', 'unknown'))
+                llm_span.set_attribute('llm.total_tokens', response.get('tokens', 0))
+                llm_span.set_attribute('llm.cost_usd', response.get('cost_usd') or 0.0)
+                llm_span.set_attribute('llm.latency_ms', response.get('latency_ms', 0))
+                llm_span.set_attribute('llm.call_id', response.get('call_id', ''))
         answer = response.get('answer', '')
 
         if request.mode == 'framework':
@@ -292,9 +369,9 @@ async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_curre
                 safety_output_span.set_attribute('safety.output_blocked', output_safety_result.get('blocked', False))
                 safety_output_span.set_attribute('safety.output_risk', output_safety_result.get('safety_risk', 'unknown'))
             with tracer.start_as_current_span('fairness_check'):
-                fairness_result = framework_fairness(answer)
+                fairness_result = await framework_fairness(answer)
             with tracer.start_as_current_span('explainability_check'):
-                explainability_result = framework_explainability(answer)
+                explainability_result = await framework_explainability(answer)
             with tracer.start_as_current_span('verifiability_check'):
                 verifiability_result = {
                     'verifiability_score': 0.8,
@@ -368,9 +445,9 @@ async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_curre
         with tracer.start_as_current_span('response_metadata'):
             metadata = MetadataResponse(
                 model=request.model,
-                provider=response.get('provider', 'groq'),
+                provider=response.get('provider', llm_client.provider_label),
                 mode=request.mode,
-                request_id=response.get('request_id', ''),
+                request_id=response.get('request_id', gateway_request_id),
                 timestamp=(
                     datetime.fromisoformat(response.get('timestamp').replace('Z', '+00:00'))
                     if response.get('timestamp')
@@ -380,6 +457,21 @@ async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_curre
                 client_id=request.client_id,
                 agent_id=request.agent_id,
                 session_id=request.session_id,
+                usage=UsageMetadata(
+                    gateway=llm_client.provider_label,
+                    served_model=response.get('served_model', ''),
+                    prompt_tokens=response.get('prompt_tokens', 0),
+                    completion_tokens=response.get('completion_tokens', 0),
+                    total_tokens=response.get('tokens', 0),
+                    cost_usd=response.get('cost_usd'),
+                    cost_source=response.get('cost_source', 'none'),
+                    latency_ms=response.get('latency_ms', 0),
+                    proxy_overhead_ms=response.get('proxy_overhead_ms'),
+                    retries=response.get('retries', 0),
+                    fallbacks=response.get('fallbacks', 0),
+                    status=response.get('status', 'success'),
+                    error_type=response.get('error_type', ''),
+                ),
             )
 
         risk_level = _risk_level(privacy_result, safety_result)
@@ -433,9 +525,75 @@ def guardrail_reports(user_id: str | None = None, user: AuthenticatedUser = Depe
     return get_guardrail_report(target_user_id)
 
 
+@app.get('/reports/evaluations')
+def evaluation_reports(limit: int = 200, user: AuthenticatedUser = Depends(require_policy_manager)):
+    return get_eval_metrics_summary(limit)
+
+
+@app.get('/reports/safety')
+def safety_reports(limit: int = 200, user: AuthenticatedUser = Depends(require_policy_manager)):
+    return {
+        **get_safety_metrics_summary(limit),
+        'validator_health': get_validator_health(),
+        'active_policy_version': get_active_policy_version(),
+    }
+
+
+@app.get('/reports/finops')
+def finops_report(days: int = 30, user: AuthenticatedUser = Depends(require_finops_viewer)):
+    """Spend, tokens, unit economics and budget posture for the FinOps dashboard."""
+    summary = get_finops_summary(days, monthly_budget_usd=Settings.FINOPS_MONTHLY_BUDGET_USD)
+    summary['currency'] = Settings.FINOPS_CURRENCY
+    summary['gateway'] = {
+        'mode': llm_client.mode,
+        'default_model': llm_client.default_model,
+        'judge_model': llm_client.judge_model,
+        'cost_system_of_record': 'litellm' if llm_client.mode == 'proxy' else 'estimated',
+    }
+    return summary
+
+
+@app.get('/reports/aiops')
+async def aiops_report(hours: int = 24, user: AuthenticatedUser = Depends(require_aiops_viewer)):
+    """Reliability, latency and dependency health for the AIOps dashboard."""
+    summary = get_aiops_summary(hours)
+    summary['guardrails'] = get_audit_block_stats(hours)
+    summary['dependencies'] = {
+        'llm_gateway': await llm_client.health(),
+        'tracing': get_tracing_status(),
+        'langfuse': {'configured': is_langfuse_configured()},
+        'database': _database_health(),
+        'safety_validators': {
+            'failing': len(get_validator_health()),
+            'active_policy_version': get_active_policy_version(),
+            'details': get_validator_health(),
+        },
+    }
+    return summary
+
+
+def _database_health() -> dict:
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('SELECT 1'))
+        return {'status': 'ok', 'dialect': engine.dialect.name}
+    except Exception as exc:
+        return {'status': 'error', 'dialect': engine.dialect.name, 'error': str(exc)}
+
+
 @app.get('/policy', response_model=PolicyResponse)
 def policy():
-    return PolicyResponse(policy=get_policy_payload())
+    # The stored policy document is seeded once; the model and provider shown
+    # to clients must follow the live gateway configuration, so overlay them.
+    payload = get_policy_payload()
+    payload['model'] = llm_client.default_model
+    payload['provider'] = llm_client.provider_label
+    payload['llm_gateway'] = {
+        'mode': llm_client.mode,
+        'judge_model': llm_client.judge_model,
+        'allowed_models': Settings.LLM_ALLOWED_MODELS,
+    }
+    return PolicyResponse(policy=payload)
 
 
 @app.get('/auth/config')
@@ -455,13 +613,46 @@ def auth_me(user: AuthenticatedUser = Depends(get_current_user)):
             'manage_policies': user_can_manage_policies(user),
             'install_hub_validators': user_can_manage_policies(user),
             'activate_policies': user_can_manage_policies(user),
+            'view_finops': user_can_view_finops(user),
+            'view_aiops': user_can_view_aiops(user),
         },
     }
 
 
 @app.get('/policies')
 def policies(user: AuthenticatedUser = Depends(require_policy_manager)):
-    return {'policies': list_policies()}
+    # Live validator errors cover policies that are still enabled but failing to load.
+    # Once a policy has been auto-disabled it is no longer compiled, so the audit trail
+    # is what keeps its explanation available.
+    health_by_policy = {
+        item['policy_id']: item
+        for item in get_validator_health()
+        if item.get('policy_id')
+    }
+    auto_disabled = get_auto_disable_reasons()
+
+    def _health_for(policy):
+        live = health_by_policy.get(policy['id'])
+        if live:
+            return live
+        record = auto_disabled.get(policy['id'])
+        if record and not policy['enabled']:
+            return {
+                'policy_id': policy['id'],
+                'policy_name': policy['name'],
+                'validator_class': record.get('validator_class'),
+                'error': record['reason'],
+                'permanent': True,
+                'auto_disabled_at': record['disabled_at'],
+            }
+        return None
+
+    return {
+        'policies': [
+            {**policy, 'runtime_health': _health_for(policy)}
+            for policy in list_policies()
+        ]
+    }
 
 
 @app.post('/policies')

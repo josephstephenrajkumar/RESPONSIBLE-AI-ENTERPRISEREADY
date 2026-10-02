@@ -54,6 +54,15 @@ export default function AuthStatus({ onUserChange }) {
       const nextConfig = await fetchAuthConfig()
       setConfig(nextConfig)
 
+      // Local/dev mode: the backend accepts any bearer token when AUTH_REQUIRED
+      // is false and always resolves it to a fixed local-dev admin identity, so
+      // there's no real Cognito login to perform here. Auto-sign in as that
+      // dummy admin instead of requiring a manual (and non-functional, since no
+      // Cognito Hosted UI is configured) login click.
+      if (!nextConfig.auth_required && !nextConfig.cognito?.domain && !getAuthToken()) {
+        setAuthToken('local-dev-auto-login')
+      }
+
       const params = new URLSearchParams(window.location.search)
       const code = params.get('code')
       const state = params.get('state')
