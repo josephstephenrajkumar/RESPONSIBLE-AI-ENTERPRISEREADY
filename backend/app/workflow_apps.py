@@ -302,7 +302,8 @@ async def bootstrap(actor: str = 'system', force: bool = False) -> Dict[str, Any
         return result
     lock_owner = f'{os.getpid()}-{secrets.token_hex(3)}'
     if not acquire_bootstrap_lock(lock_owner):
-        result['errors'].append('bootstrap is running in another gateway worker; retry shortly')
+        # Another gateway worker holds the lease (normal at start-up with several workers).
+        result['note'] = 'bootstrap is running in another gateway worker; retry shortly'
         result['skipped'] = True
         return result
     _state['bootstrap_running'] = True

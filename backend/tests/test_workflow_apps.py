@@ -444,5 +444,7 @@ class BootstrapTests(WorkflowBase):
         self.assertTrue(workflow_apps.acquire_bootstrap_lock('other-worker'))
         result = self._run_bootstrap(ap, [])
         self.assertTrue(result.get('skipped'))
+        self.assertEqual(result['errors'], [])
+        self.assertIn('another gateway worker', result['note'])
         self.assertEqual(ap.installed, [])
         workflow_apps.release_bootstrap_lock('other-worker')
