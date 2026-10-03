@@ -37,15 +37,9 @@ variable "container_port" {
 }
 
 variable "frontend_url" {
-  description = "AP_FRONTEND_URL. Empty = the internal ALB URL (worker-facing, keeps bundle fetches inside the VPC); browsers reach the engine through the API Gateway created by api-gateway-workflows."
+  description = "AP_FRONTEND_URL. Empty = the internal ALB URL (worker-facing, keeps bundle fetches inside the VPC). Browsers never reach the engine; the portal's Workflow Studio talks to it through the gateway."
   type        = string
   default     = ""
-}
-
-variable "allowed_embed_origins" {
-  description = "Origins allowed to iframe the builder and chat UI (Content-Security-Policy frame-ancestors)."
-  type        = list(string)
-  default     = []
 }
 
 variable "postgres_host" {
@@ -361,7 +355,6 @@ resource "aws_ecs_task_definition" "this" {
         { name = "AP_ALLOW_OPEN_SIGN_UP", value = var.allow_open_sign_up ? "true" : "false" },
         { name = "AP_PIECES_SYNC_MODE", value = var.pieces_sync_mode },
         { name = "AP_WEBHOOK_TIMEOUT_SECONDS", value = tostring(var.webhook_timeout_seconds) },
-        { name = "AP_ALLOWED_EMBED_ORIGINS", value = join(",", var.allowed_embed_origins) },
         { name = "AP_LOG_LEVEL", value = "info" }
       ]
       secrets = [

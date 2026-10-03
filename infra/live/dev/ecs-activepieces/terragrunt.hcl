@@ -55,12 +55,6 @@ inputs = {
   encryption_key_secret_arn = dependency.secrets.outputs.secret_arns.activepieces_encryption_key
   jwt_secret_secret_arn     = dependency.secrets.outputs.secret_arns.activepieces_jwt_secret
 
-  # The Workflow Apps tab iframes the builder and chat from the CloudFront origin.
-  allowed_embed_origins = [
-    "https://d12wylhj234wu3.cloudfront.net",
-    "http://localhost:5173",
-  ]
-
   ingress_cidr_blocks = [dependency.network.outputs.vpc_cidr_block]
   desired_count       = 1
   cpu                 = 2048

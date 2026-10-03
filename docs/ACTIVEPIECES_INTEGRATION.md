@@ -55,16 +55,17 @@ per-tenant projects and piece governance. Section 8 lists what changes when it i
 |---|---|---|
 | A. Fork the Activepieces UI into our React app | Vendor `packages/web` and mount the builder as a component | Rejected. 0.92.0 is a bun/turbo monorepo with its own routing, state, sockets and i18n; the fork would diverge within weeks and the checkout is read-only by requirement |
 | B. Enterprise embed SDK | `activepieces.configure({ instanceUrl, jwtToken })` with signed provisioning tokens, per-tenant projects, hidden navigation | Correct long-term answer, needs a licence and licence activation against Activepieces' console. Designed for, not implemented (section 8) |
-| **C. Separate service + control plane in the gateway + iframe (chosen)** | Activepieces runs beside the gateway. The gateway signs in with a service account, installs our pieces, configures the AI provider, creates and publishes flows from templates, issues per-app credentials and ingests spend. The front end iframes the chat UI and the builder from an allow-listed origin | Works in CE with no forked code; everything we add lives in this repository; the upgrade to B is additive |
+| **C. Separate service + control plane in the gateway + iframe (first delivery 2026-10-03, replaced by E the same day)** | Activepieces runs beside the gateway. The gateway signs in with a service account, installs our pieces, configures the AI provider, creates and publishes flows from templates, issues per-app credentials and ingests spend. The front end iframes the chat UI and the builder from an allow-listed origin | Works in CE with no forked code; everything we add lives in this repository; the upgrade to B is additive |
 | D. Link-out only | Buttons that open Activepieces in a new tab | Fallback inside C for browsers that block third-party storage in iframes |
+| **E. Separate service + control plane in the gateway + our own Workflow Studio (current)** | The engine is an internal backend with no public URL. The portal's Workflow Studio (`frontend/src/studio/`) builds, tests, publishes and inspects flows through the gateway's allow-listed Studio API (`backend/app/workflow_studio.py`); the engine's UI, origin and login never appear | Chosen after the review of C ([WORKFLOW_STUDIO_PLAN.md](WORKFLOW_STUDIO_PLAN.md), Track 2): the portal must look and behave as one product, and CE cannot re-theme or SSO-embed the engine UI |
 
 ## 4. Target architecture
 
 ```text
 Browser (React, :5173)                                    Activepieces (:8080, CE 0.92.0)
   Chat | Responsible AI | Proxy Manager | FinOps | AIOps     API + worker + UI, PGlite/Postgres
-  Workflow Apps ───────── iframe /chats/{flowId} ──────────► public chat UI
-                 ───────── iframe /flows/{flowId} ──────────► builder (AP login in CE)
+  Workflow Studio ──── /workflows/apps/{id}/studio/* ───────► gateway → engine API (flows, pieces, connections, runs)
+  App chat ─────────── /workflows/apps/{id}/chat ───────────► gateway → engine sync webhook (no public chat page)
         │                                                        │ flows run in the worker
         ▼ Bearer Cognito JWT                                      │
 FastAPI gateway (:8000)                                           │  piece: Responsible AI Gateway
@@ -139,20 +140,32 @@ Creating an app (`POST /workflows/apps`):
 Publishing is `LOCK_AND_PUBLISH`; disable/enable is `CHANGE_STATUS`. Deleting an app deletes the flow, both
 connections, the virtual key and the token.
 
-### 5.3 Front end (`frontend/src/components/WorkflowApps.jsx`)
+### 5.3 Front end: Workflow Apps and the Workflow Studio
 
-A new **Workflow Apps** tab (permission `manage_workflows`) with:
+`frontend/src/components/WorkflowApps.jsx` (permission `manage_workflows`): engine status (collapsed by default),
+template gallery and create form, the app table (Open Studio, Publish, Disable/Enable, Delete), the Studio catalogue
+dialog (which pieces builders may use) and spend sync. Nothing on the screen points at the engine.
 
-- engine status (reachable, bootstrap state, piece versions, AI provider) and a bootstrap button,
-- the app table (name, template, status, budget, created) with Open builder, Open chat, Publish, Disable/Enable,
-  Runs and Delete,
-- a create form (name, template, Responsible AI mode, model from `/gateway/models`, monthly budget),
-- an embedded builder (iframe to `{public}/flows/{flowId}`, with "open in new tab" fallback),
-- an embedded chat (iframe to `{public}/chats/{flowId}`) and a small "test through the gateway" composer that uses
-  `POST /workflows/apps/{id}/chat`, so the round trip can be exercised without leaving the gateway's auth boundary.
+`frontend/src/studio/` is the **Workflow Studio**, our own builder over the engine API through the gateway:
 
-The existing Chat tab is unchanged. The chat app re-implemented on Activepieces is the `responsible-ai-chat` template,
-visible as "Open chat" on any app created from it.
+- `WorkflowStudio.jsx`: step tree with router branches and loop bodies, "+" insertion points (after, inside branch,
+  inside loop), step editor (display name, piece properties, connection picker, error handling, skip, duplicate,
+  delete), Code step editor, Router condition editor (OR groups of AND conditions, add/delete branch), Loop items,
+  trigger sample data, step test (engine TESTING run polled to completion, input/output/error shown), versions with
+  "use as draft", publish/enable, rename, and the app's chat window.
+- `PropertyForm.jsx`: renders any piece property map (text, number, checkbox, static and dynamic dropdowns, dynamic
+  property groups, object, array, JSON, markdown) with a data picker that inserts `{{step['output']['field']}}`
+  expressions from recorded samples and test outputs.
+- `StepPicker.jsx` (curated catalogue, actions and triggers, Code/Router/Loop), `ConnectionDialog.jsx` (custom auth,
+  secret, basic auth, OAuth2 through the portal's `/oauth/callback` page and a popup), `RunsPanel.jsx` (run list,
+  per-step input/output, retry from the failed step), `flowModel.js` (step shapes and operation payloads).
+- `components/ui/index.jsx` and `theme.css`: shared primitives and design tokens so the Studio and the rest of the
+  portal share one look; the Activate brand is applied by filling the `[data-theme="activate"]` block.
+
+The gateway side is `backend/app/workflow_studio.py` (section 5.2 lists the routes). Only operations the Studio needs
+are allow-listed; publish, status and deletion stay on the app routes so budgets, keys and tenancy are enforced once.
+The existing Chat tab is unchanged; the `responsible-ai-chat` template reproduces it as a workflow that the Studio can
+extend.
 
 ### 5.4 Data model
 
@@ -176,17 +189,16 @@ FinOps and AIOps dashboards show workflow spend without schema changes.
 
 ### 5.5 Deployment
 
-Local: `docker compose up -d` now also starts `activepieces` (image 0.92.0, PGlite, in-memory queue, port 8080,
-`AP_ALLOWED_EMBED_ORIGINS` for the Vite dev origins, `host.docker.internal` for the natively running gateway).
-Secrets (`AP_ENCRYPTION_KEY`, `AP_JWT_SECRET`, `ACTIVEPIECES_SERVICE_PASSWORD`) have dev-only defaults or live in the
-gitignored `backend/.env`.
+Local: `docker compose up -d` also starts `activepieces` (image 0.92.0, PGlite, in-memory queue). Port 8080 is
+published only so the natively running gateway can reach the engine; users never open it. `AP_FRONTEND_URL` points
+at the engine itself because the worker fetches piece bundles from it. Secrets (`AP_ENCRYPTION_KEY`, `AP_JWT_SECRET`,
+`ACTIVEPIECES_SERVICE_PASSWORD`) have dev-only defaults or live in the gitignored `backend/.env`.
 
-AWS dev (not deployed yet; waits for the deploy instruction): an `ecs-activepieces` Terragrunt module with the
-`APP` and `WORKER` container types, Postgres (a second Aurora database or the existing cluster), ElastiCache Redis,
-an internal ALB target behind the API Gateway or CloudFront behaviour `/workflows/*`, `AP_FRONTEND_URL` set to the
-public URL, `AP_ALLOWED_EMBED_ORIGINS` set to the CloudFront domain, `AP_PIECES_SYNC_MODE=NONE` with archives
-installed by the gateway, and all secrets in Secrets Manager. The gateway task gets `ACTIVEPIECES_API_URL` on the
-VPC-internal address.
+AWS dev: module `ecs-activepieces` (one Fargate task behind an **internal** ALB, shared Aurora database over SSL,
+in-memory queue, secrets in Secrets Manager; see TD-32 for the prod shape). Nothing uses the engine's public endpoint
+any more; the HTTP API `api-gateway-workflows` of the first delivery is scheduled for `terragrunt destroy` by an
+operator (the destroy plan was prepared on 2026-10-03; the apply is a protected action in the automated session). The gateway task gets
+`ACTIVEPIECES_API_URL` on the internal ALB and ships the piece archives in its image (`/app/pieces`).
 
 ## 6. Security and Responsible AI boundaries
 
@@ -247,6 +259,9 @@ creation per tenant and the builder URL (embed route) are isolated behind its in
 | ADR-20 | Three explicit AI call paths (governed gateway piece, direct LiteLLM piece, universal AI via custom provider) | Matches the requirement: AI inference through the proxy, Responsible AI processing only where chosen |
 | ADR-21 | Workflow spend is ingested from the proxy spend log into `llm_usage_events` rather than forcing all inference through the gateway | FinOps and AIOps stay complete without widening the Responsible AI pipeline to calls that must bypass it |
 | ADR-22 | Enterprise licence is the upgrade path for SSO, tenancy and piece governance; the client interface isolates the change | Avoids a rewrite later |
+| ADR-23 | The builder is ours (Workflow Studio in the portal) and the engine is an internal backend with no public URL | Review of the first delivery: one product, one theme, one login; CE cannot re-theme or SSO-embed the engine UI (plan §4a) |
+| ADR-24 | The Studio drives the engine only through an allow-listed set of flow operations on the gateway; publish, status, budgets and deletion stay on the app routes | Keeps tenancy, budgets and credentials enforced in one place and keeps the engine's surface small |
+| ADR-25 | Studio-generated expressions use the engine 0.92 format `{{step['output']…}}` | Flows imported with an older schema are migrated by the engine; flows edited through the API are not, and the legacy form resolves to empty values (found in verification) |
 
 ## 10. Verification (2026-10-03, local stack)
 
@@ -291,10 +306,12 @@ LiteLLM writes its spend log in batches, so ingestion is eventually consistent.
 
 ## 11. Open items and follow-ups
 
-- Builder login and separate engine URL raised at review: options and recommendation in [WORKFLOW_STUDIO_PLAN.md](WORKFLOW_STUDIO_PLAN.md).
-
-- Enterprise licence evaluation for SSO embedding and per-tenant projects (section 8; TD-31).
-- `ecs-activepieces` Terraform module, Aurora database, Redis and secrets for AWS dev; deploy on instruction (TD-32).
-- Place the public chat page behind the gateway or an authenticating proxy before any internet exposure (TD-30).
+- Builder login and separate engine URL raised at review: resolved by the Workflow Studio (Track 2 of
+  [WORKFLOW_STUDIO_PLAN.md](WORKFLOW_STUDIO_PLAN.md), Sprints WS-1 to WS-3 in [ROADMAP.md](ROADMAP.md)).
+- Enterprise licence evaluation for per-tenant engine projects and piece governance (section 8; TD-31, now Low).
+- Production shape of the engine: own database, Redis queue, APP/WORKER split (TD-32).
 - Add the workflow spend sync to the AIOps dependency checks and alarms.
-- Piece catalogue review: decide which community pieces are acceptable for builders and document the list.
+- Studio polish candidates: drag-and-drop step reordering (MOVE_ACTION is already allow-listed), markdown preview for
+  replies, OIDC connections, per-step run timeline while a test is running (engine streams it over a websocket that the
+  Studio does not consume).
+- Activate brand values for `theme.css` once the brand source is supplied.

@@ -42,7 +42,7 @@ the Activepieces builder in an iframe with its own login and URL. The review ask
 styled as the Activate portal. Custom appearance of the engine UI is enterprise-only, so the builder becomes ours and the
 engine becomes an internal backend.
 
-#### Sprint WS-1 — Studio foundation: flow editor over the engine API
+#### Sprint WS-1 — Studio foundation: flow editor over the engine API — ✅ 2026-10-03
 
 - Gateway Studio API (tenant-scoped, Cognito): curated piece catalogue and piece metadata, dynamic property options, flow read and
   allow-listed flow operations (trigger, add/update/delete/move/duplicate step, rename, sample data), app-scoped connections
@@ -58,7 +58,7 @@ engine becomes an internal backend.
 **Exit criteria**: a Responsible AI chat app can be assembled step by step in the Studio without the engine UI, published and
 used; no engine login or engine URL in the user journey.
 
-#### Sprint WS-2 — Runs, templates and data mapping polish
+#### Sprint WS-2 — Runs, templates and data mapping polish — ✅ 2026-10-03
 
 - Run history with per-step input/output and failed-step diagnostics; re-run from the Studio.
 - Template gallery with one-click creation; expression picker driven by previous steps' sample data; JSON and array property

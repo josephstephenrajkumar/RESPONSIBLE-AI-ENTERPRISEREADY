@@ -68,3 +68,26 @@ Open questions:
   Enterprise licence for embedding SSO and per-tenant projects (BACKLOG candidate); hosting the chat page behind
   the gateway before internet exposure.
 ```
+
+## Addendum 2026-10-03 — Workflow Studio (Track 2, Sprints WS-1 to WS-3)
+
+Trigger: review of the first delivery ("why a separate URL; I expected an SDK integrated into the front end; there
+is an Activepieces sign-up"), then "I would like to see the entire software themed and styled as Activate portal".
+
+Decision: Track 2 of `docs/WORKFLOW_STUDIO_PLAN.md`. The builder becomes ours; the engine becomes an internal
+backend with no public URL. Approval to run all sprints without further check-ins was given explicitly.
+
+Delivered:
+  Gateway Studio API (`backend/app/workflow_studio.py`, allow-listed flow operations, catalogue, options,
+  connections incl. OAuth2 via the portal callback, step test polled to completion, sample data, run detail/retry,
+  versions); Workflow Studio front end (`frontend/src/studio/`), shared UI primitives and theme tokens; Workflow Apps
+  screen without any engine link or iframe; engine public HTTP API and embed origins removed from infra; docs.
+
+Verification:
+  backend unit suite 65 green; `tests/workflow_studio_e2e.py` 23/23 and `tests/workflow_apps_e2e.py` 23/23 against
+  the local stack; frontend build; AWS dev redeploy recorded in the snapshot addendum and ACTIVEPIECES_INTEGRATION §10a.
+
+Lesson:
+  Engine 0.92 resolves step references as `{{step['output']…}}`. Imported flows (templates) are migrated by the
+  engine, API-edited flows are not; the legacy form silently resolves to empty strings. The Studio emits the current
+  format (ADR-25).

@@ -2,9 +2,10 @@ include "root" {
   path = find_in_parent_folders()
 }
 
-# Public HTTPS entry for the Activepieces engine (builder + chat UI + its API) at the
-# root of its own execute-api domain. The engine sets its own CORS headers, so the
-# API Gateway CORS configuration is disabled here.
+# LEGACY (first Workflow Apps delivery, 2026-10-03): public HTTPS entry for the Activepieces
+# engine UI. Nothing references it since the Workflow Studio (Sprint WS-3); the gateway is the
+# engine's only client. Scheduled for removal: run `terragrunt destroy` here, then delete this
+# folder. Kept only so the destroy can be run from the committed configuration.
 terraform {
   source = "../../../modules/api-gateway"
 }

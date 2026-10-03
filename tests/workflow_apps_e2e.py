@@ -61,7 +61,7 @@ def step(name, ok, detail=''):
 
 # 1. status + bootstrap -------------------------------------------------------------
 s, status = call('GET', '/workflows/status')
-step('workflow status', s == 200 and status.get('enabled'), f'engine {status.get("public_url") if s == 200 else status}')
+step('workflow status', s == 200 and status.get('enabled'), f'engine {status.get("api_url") if s == 200 else status}')
 if s != 200:
     sys.exit(1)
 step('engine reachable', status.get('engine_reachable') is True, status.get('api_url'))
@@ -76,10 +76,10 @@ step('AI provider configured', (boot.get('ai_provider') or {}).get('state') in (
 
 # 2. Responsible AI chat app ----------------------------------------------------------
 s, app = call('POST', '/workflows/apps', {'name': 'E2E Responsible AI chat', 'template': 'responsible-ai-chat', 'rai_mode': 'code', 'monthly_budget_usd': 1.0, 'bot_name': 'E2E Bot'})
-step('create responsible-ai-chat app', s == 201, (app.get('id') + ' ' + app.get('builder_url')) if s == 201 else str(app)[:400])
+step('create responsible-ai-chat app', s == 201, app.get('id') if s == 201 else str(app)[:400])
 if s == 201:
     created.append(app['id'])
-    step('app registry fields', app['status'] == 'draft' and app['client_id'] == f"workflow-app:{app['id']}" and app['chat_url'].endswith(f"/chats/{app['flow_id']}"))
+    step('app registry fields', app['status'] == 'draft' and app['client_id'] == f"workflow-app:{app['id']}")
     s, pub = call('POST', f"/workflows/apps/{app['id']}/publish", timeout=600)
     step('publish responsible-ai-chat app', s == 200 and pub.get('status') == 'published', str(pub)[:200] if s != 200 else pub.get('published_at'))
     t0 = time.time()

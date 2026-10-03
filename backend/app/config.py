@@ -115,7 +115,6 @@ class Settings:
     ACTIVEPIECES_ENABLED = os.getenv('ACTIVEPIECES_ENABLED', 'true').lower() == 'true'
     # Engine as seen from the gateway process (API) and from the browser (UI).
     ACTIVEPIECES_API_URL = os.getenv('ACTIVEPIECES_API_URL', 'http://localhost:8080').rstrip('/')
-    ACTIVEPIECES_PUBLIC_URL = (os.getenv('ACTIVEPIECES_PUBLIC_URL', '') or os.getenv('ACTIVEPIECES_API_URL', 'http://localhost:8080')).rstrip('/')
     ACTIVEPIECES_SERVICE_EMAIL = os.getenv('ACTIVEPIECES_SERVICE_EMAIL', 'workflow-service@responsible-ai.local')
     ACTIVEPIECES_SERVICE_PASSWORD = os.getenv('ACTIVEPIECES_SERVICE_PASSWORD', '')
     # Gateway and proxy as seen from the Activepieces worker (the piece runtime).

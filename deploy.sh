@@ -45,7 +45,6 @@ DEPLOYMENT_ORDER=(
     "ecr"
     "ecs-litellm-proxy"
     "ecs-activepieces"
-    "api-gateway-workflows"
     "ecs-ai-gateway"
     "api-gateway"
     "frontend-s3-cloudfront"
@@ -58,7 +57,7 @@ DESTROY_ORDER=(
     "frontend-s3-cloudfront"
     "api-gateway"
     "ecs-ai-gateway"
-    "api-gateway-workflows"
+    "api-gateway-workflows"   # legacy public engine API; destroy-only until the folder is removed
     "ecs-activepieces"
     "ecs-litellm-proxy"
     "ecr"

@@ -132,8 +132,6 @@ class WorkflowChatRequest(BaseModel):
 
 
 # ----------------------------------------------------------------------------- helpers
-def _public_url() -> str:
-    return Settings.ACTIVEPIECES_PUBLIC_URL.rstrip('/')
 
 
 def serialize(app: WorkflowApp) -> Dict[str, Any]:
@@ -148,8 +146,6 @@ def serialize(app: WorkflowApp) -> Dict[str, Any]:
         'client_id': f'workflow-app:{app.id}', 'status': app.status,
         'published_at': app.published_at.isoformat() + 'Z' if app.published_at else None,
         'created_at': app.created_at.isoformat() + 'Z' if app.created_at else None,
-        'builder_url': f'{_public_url()}/flows/{app.ap_flow_id}' if app.ap_flow_id else '',
-        'chat_url': f'{_public_url()}/chats/{app.ap_flow_id}' if app.ap_flow_id else '',
     }
 
 
@@ -662,7 +658,7 @@ async def workflow_status(user: AuthenticatedUser = Depends(require_workflow_adm
         'enabled': Settings.ACTIVEPIECES_ENABLED,
         'service_configured': bool(Settings.ACTIVEPIECES_SERVICE_PASSWORD),
         'service_email': Settings.ACTIVEPIECES_SERVICE_EMAIL,
-        'api_url': Settings.ACTIVEPIECES_API_URL, 'public_url': _public_url(),
+        'api_url': Settings.ACTIVEPIECES_API_URL,
         'gateway_url_for_engine': Settings.ACTIVEPIECES_GATEWAY_URL, 'litellm_url_for_engine': Settings.ACTIVEPIECES_LITELLM_URL,
         'engine_reachable': reachable, 'signed_in': activepieces.signed_in, 'project_id': activepieces.project_id,
         'bootstrapped_at': setting_get('bootstrapped_at'), 'pieces': setting_get('pieces', {}),

@@ -72,14 +72,6 @@ dependency "engine" {
   }
 }
 
-dependency "engine_api" {
-  config_path = "../api-gateway-workflows"
-
-  mock_outputs = {
-    api_endpoint = "https://mock-workflows.execute-api.ap-southeast-1.amazonaws.com"
-  }
-}
-
 inputs = {
   project_name       = "responsible-ai"
   environment        = "dev"
@@ -107,12 +99,12 @@ inputs = {
 
   guardrails_token_secret_arn = ""
 
-  # Workflow Apps: the gateway owns the Activepieces control plane. Internal ALB for
-  # API calls, HTTP API endpoint for the embedded builder and chat, service password in
-  # Secrets Manager. The piece archives ship inside the gateway image (/app/pieces).
+  # Workflow Apps: the gateway owns the Activepieces control plane and is the engine's only
+  # client (internal ALB). The portal's Workflow Studio is the builder; the engine has no
+  # public URL. Service password in Secrets Manager; piece archives ship inside the gateway
+  # image (/app/pieces).
   activepieces_enabled                     = true
   activepieces_api_url                     = dependency.engine.outputs.engine_url
-  activepieces_public_url                  = dependency.engine_api.outputs.api_endpoint
   activepieces_service_password_secret_arn = dependency.secrets.outputs.secret_arns.activepieces_service_password
   activepieces_litellm_url                 = dependency.litellm.outputs.proxy_url
   workflow_default_budget_usd              = 5

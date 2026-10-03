@@ -155,12 +155,6 @@ variable "activepieces_api_url" {
   default     = ""
 }
 
-variable "activepieces_public_url" {
-  description = "Engine as seen from the browser (HTTP API endpoint); used for the embedded builder and chat."
-  type        = string
-  default     = ""
-}
-
 variable "activepieces_service_email" {
   type    = string
   default = "workflow-service@responsible-ai.local"
@@ -237,7 +231,6 @@ locals {
   activepieces_environment = [
     { name = "ACTIVEPIECES_ENABLED", value = var.activepieces_enabled ? "true" : "false" },
     { name = "ACTIVEPIECES_API_URL", value = var.activepieces_api_url },
-    { name = "ACTIVEPIECES_PUBLIC_URL", value = var.activepieces_public_url },
     { name = "ACTIVEPIECES_SERVICE_EMAIL", value = var.activepieces_service_email },
     { name = "ACTIVEPIECES_GATEWAY_URL", value = var.activepieces_gateway_url != "" ? var.activepieces_gateway_url : "http://${aws_lb.this.dns_name}" },
     { name = "ACTIVEPIECES_LITELLM_URL", value = var.activepieces_litellm_url != "" ? var.activepieces_litellm_url : var.litellm_proxy_url },

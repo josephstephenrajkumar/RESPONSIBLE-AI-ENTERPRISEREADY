@@ -42,8 +42,8 @@ The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, 
 - [No Secrets in Git or Documentation](docs/NO_SECRETS_IN_GIT.md) — policy, the scanner and hooks that enforce it, what to do if a secret leaks
 - [Supply-Chain Trust: SBOM, Provenance and Signing](docs/SUPPLY_CHAIN_TRUST.md) — how we make AI-assisted releases verifiable for customers; backlog items BL-01, BL-02
 - [Backlog](docs/BACKLOG.md) — agreed but unscheduled items, mirrored in section 5 of the Activate roadmap specification
-- [Activepieces Integration: Workflow Apps](docs/ACTIVEPIECES_INTEGRATION.md) — review of Activepieces 0.92, the embedded builder and chat app, custom pieces, control plane, security boundaries, enterprise upgrade path
-- [Workflow Studio plan](docs/WORKFLOW_STUDIO_PLAN.md) — options and recommendation for removing the engine login and URL and building the workflow builder into our own front end
+- [Activepieces Integration: Workflow Apps and Workflow Studio](docs/ACTIVEPIECES_INTEGRATION.md) — review of Activepieces 0.92, the gateway control plane, custom pieces, the portal's own Workflow Studio over the engine API, security boundaries, enterprise upgrade path
+- [Workflow Studio plan](docs/WORKFLOW_STUDIO_PLAN.md) — decision record: why the builder is ours and the engine is an internal backend with no public URL
 
 ## Target AWS Architecture
 

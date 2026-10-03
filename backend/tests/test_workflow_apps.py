@@ -229,7 +229,7 @@ class AppLifecycleTests(WorkflowBase):
         self.assertTrue(created['id'].startswith('wf_'))
         self.assertEqual(created['status'], 'draft')
         self.assertEqual(created['client_id'], f"workflow-app:{created['id']}")
-        self.assertTrue(created['builder_url'].endswith(f"/flows/flow_{created['id']}"))
+        self.assertNotIn('builder_url', created)  # the engine has no user-facing URL; the Studio is the builder
         # LiteLLM key with budget and attribution tags; only the hash is stored
         key_call = next(c for c in self.llm.calls if c[1] == '/key/generate')
         self.assertEqual(key_call[2]['max_budget'], 5)

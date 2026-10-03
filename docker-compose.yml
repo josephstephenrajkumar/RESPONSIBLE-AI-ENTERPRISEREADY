@@ -104,7 +104,8 @@ services:
       # The worker downloads piece bundles from the public URL, so the API must listen on
       # the same port inside the container as the one published on the host.
       AP_PORT: "8080"
-      AP_FRONTEND_URL: ${ACTIVEPIECES_PUBLIC_URL:-http://localhost:8080}
+      # Worker-facing only (piece bundle fetches). Users never open the engine; the portal's Workflow Studio is the builder.
+      AP_FRONTEND_URL: http://localhost:8080
       # 32 hex characters. The all-zero value is a dev-only placeholder; AWS injects both from Secrets Manager.
       AP_ENCRYPTION_KEY: ${AP_ENCRYPTION_KEY:-00000000000000000000000000000000}
       AP_JWT_SECRET: ${AP_JWT_SECRET:-local-dev-activepieces-jwt-secret}
@@ -117,7 +118,6 @@ services:
       AP_PIECES_SYNC_MODE: OFFICIAL_AUTO
       AP_WEBHOOK_TIMEOUT_SECONDS: "120"
       # Origins allowed to iframe the builder and the chat UI (frame-ancestors).
-      AP_ALLOWED_EMBED_ORIGINS: ${ACTIVEPIECES_EMBED_ORIGINS:-http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Plan for decision, 2026-10-03. No code changed |
+| Status | Decided 2026-10-03 (Track 2) and implemented the same day: Sprints WS-1 to WS-3 in [ROADMAP.md](ROADMAP.md); build notes in [ACTIVEPIECES_INTEGRATION.md](ACTIVEPIECES_INTEGRATION.md) §5.3 and §10a. This document is the decision record |
 | Trigger | Review feedback on the first deployment: the builder opens on a separate URL and shows an Activepieces sign-up/sign-in; the expectation was an SDK-style integration inside our front end |
 | Related | [ACTIVEPIECES_INTEGRATION.md](ACTIVEPIECES_INTEGRATION.md) (what was built), TD-30, TD-31 |
 
