@@ -1,0 +1,6 @@
+{
+  "name": "@responsible-ai/piece-litellm-proxy",
+  "version": "0.1.1",
+  "description": "Direct model inference through the organisation's LiteLLM proxy with a per-app virtual key. Bypasses Responsible AI processing; spend is still metered by the proxy.",
+  "license": "UNLICENSED"
+}

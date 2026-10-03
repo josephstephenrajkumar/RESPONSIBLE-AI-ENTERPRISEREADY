@@ -23,3 +23,7 @@ infra-inputs-dev.md
 
 # Editor workspace files
 *.code-workspace
+
+# Piece archives staged into the gateway image by deploy.sh (built from workflows/pieces)
+backend/pieces/*
+!backend/pieces/.gitkeep

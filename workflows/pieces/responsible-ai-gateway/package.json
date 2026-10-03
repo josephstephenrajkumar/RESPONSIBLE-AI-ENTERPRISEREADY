@@ -1,0 +1,6 @@
+{
+  "name": "@responsible-ai/piece-responsible-ai-gateway",
+  "version": "0.1.1",
+  "description": "Chat through the Responsible AI Enterprise Gateway: privacy redaction, safety guardrails, evaluation and metering stay in the loop.",
+  "license": "UNLICENSED"
+}

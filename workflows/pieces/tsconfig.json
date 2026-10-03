@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@activepieces/pieces-framework": ["../../../ActivateDev/activepieces-main/packages/pieces/framework/src"],
+      "@activepieces/pieces-common": ["../../../ActivateDev/activepieces-main/packages/pieces/common/src"],
+      "@activepieces/core-utils": ["../../../ActivateDev/activepieces-main/packages/core/utils/src"],
+      "@activepieces/core-piece-types": ["../../../ActivateDev/activepieces-main/packages/core/piece-types/src"],
+      "@activepieces/shared": ["../../../ActivateDev/activepieces-main/packages/core/shared/src"]
+    }
+  },
+  "include": ["*/src/**/*.ts"]
+}

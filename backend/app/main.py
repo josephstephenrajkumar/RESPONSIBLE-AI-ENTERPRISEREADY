@@ -16,6 +16,7 @@ from app.auth import (
     require_policy_manager,
     user_can_manage_models,
     user_can_manage_policies,
+    user_can_manage_workflows,
     user_can_view_aiops,
     user_can_view_finops,
 )
@@ -58,6 +59,8 @@ from app.schemas import (
 from app.llm_client import bind_request_context, llm_client, reset_request_context
 from app import gateway_settings
 from app.litellm_admin import LiteLLMAdminError, litellm_admin
+from app import workflow_apps
+from app.activepieces_client import activepieces
 from app import litellm_bootstrap
 from app.model_catalog import CatalogError, model_catalog
 from app.responsible_ai import (
@@ -108,6 +111,9 @@ app.add_middleware(
     max_age=3600
 )
 
+# Workflow Apps control plane (Activepieces); docs/ACTIVEPIECES_INTEGRATION.md
+app.include_router(workflow_apps.router)
+
 
 @app.on_event('startup')
 def startup_event():
@@ -115,10 +121,12 @@ def startup_event():
     instrument_sqlalchemy(engine)
     init_database()
     gateway_settings.ensure_table()
+    workflow_apps.ensure_tables()
     reload_safety_policies()
+    import asyncio
     if llm_client.mode == 'proxy':
-        import asyncio
         asyncio.get_event_loop().create_task(litellm_bootstrap.startup_seed())
+    asyncio.get_event_loop().create_task(workflow_apps.startup())
 
 
 @app.on_event('shutdown')
@@ -126,6 +134,7 @@ async def shutdown_event():
     await llm_client.close()
     await model_catalog.close()
     await litellm_admin.close()
+    await activepieces.close()
 
 
 @app.get('/health')
@@ -507,6 +516,9 @@ async def chat(request: ChatRequest, user: AuthenticatedUser = Depends(get_curre
     elif not llm_client.model_allowed(requested_model):
         raise HTTPException(status_code=400, detail=f'Model {requested_model!r} is not in the gateway allowlist')
     request.model = requested_model
+    # Workflow apps are attributed to the app (client_id) unless the flow set one.
+    if not request.client_id and user.client_id:
+        request.client_id = user.client_id
 
     # Bind caller identity once so every model call in this request (answer +
     # judge calls) is metered against the same user/tenant/request.
@@ -897,6 +909,7 @@ def auth_me(user: AuthenticatedUser = Depends(get_current_user)):
             'view_finops': user_can_view_finops(user),
             'view_aiops': user_can_view_aiops(user),
             'manage_models': user_can_manage_models(user),
+            'manage_workflows': user_can_manage_workflows(user),
         },
     }
 

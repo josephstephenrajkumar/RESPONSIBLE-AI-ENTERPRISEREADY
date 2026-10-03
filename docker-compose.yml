@@ -1,6 +1,6 @@
 # Local stack for the Responsible AI Enterprise Gateway.
 #
-#   docker compose up -d                 # infra only: Jaeger, Postgres, LiteLLM proxy
+#   docker compose up -d                 # infra only: Jaeger, Postgres, LiteLLM proxy, Activepieces
 #   docker compose --profile full up -d  # also builds and runs the FastAPI gateway
 #
 # Run the backend natively for day-to-day development (hot reload):
@@ -90,6 +90,50 @@ services:
     ports:
       - "8000:8000"
 
+  # Workflow engine for the Workflow Apps screen (docs/ACTIVEPIECES_INTEGRATION.md).
+  # Community edition, single container: API + worker + UI on port 80, PGlite
+  # database and in-memory queue (dev only; AWS uses Postgres + Redis).
+  # The worker reaches the proxy as http://litellm:4000 and the natively running
+  # gateway as http://host.docker.internal:8000.
+  activepieces:
+    image: activepieces/activepieces:0.92.0
+    depends_on:
+      litellm:
+        condition: service_healthy
+    environment:
+      # The worker downloads piece bundles from the public URL, so the API must listen on
+      # the same port inside the container as the one published on the host.
+      AP_PORT: "8080"
+      AP_FRONTEND_URL: ${ACTIVEPIECES_PUBLIC_URL:-http://localhost:8080}
+      # 32 hex characters. The all-zero value is a dev-only placeholder; AWS injects both from Secrets Manager.
+      AP_ENCRYPTION_KEY: ${AP_ENCRYPTION_KEY:-00000000000000000000000000000000}
+      AP_JWT_SECRET: ${AP_JWT_SECRET:-local-dev-activepieces-jwt-secret}
+      AP_DB_TYPE: PGLITE
+      AP_REDIS_TYPE: MEMORY
+      AP_EXECUTION_MODE: UNSANDBOXED
+      AP_ENVIRONMENT: prod
+      AP_TELEMETRY_ENABLED: "false"
+      AP_ALLOW_OPEN_SIGN_UP: "true"
+      AP_PIECES_SYNC_MODE: OFFICIAL_AUTO
+      AP_WEBHOOK_TIMEOUT_SECONDS: "120"
+      # Origins allowed to iframe the builder and the chat UI (frame-ancestors).
+      AP_ALLOWED_EMBED_ORIGINS: ${ACTIVEPIECES_EMBED_ORIGINS:-http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - activepieces-config:/root/.activepieces
+      - activepieces-cache:/usr/src/app/cache
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/api/v1/flags').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
 volumes:
   litellm-db-data:
   backend-data:
+  activepieces-config:
+  activepieces-cache:

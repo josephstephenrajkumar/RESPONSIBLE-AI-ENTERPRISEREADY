@@ -10,6 +10,7 @@ import FinOpsDashboard from './components/FinOpsDashboard'
 import AIOpsDashboard from './components/AIOpsDashboard'
 import AuthStatus from './components/AuthStatus'
 import ProxyManager from './components/ProxyManager'
+import WorkflowApps from './components/WorkflowApps'
 import { sendChat, fetchPolicy } from './api'
 
 // `model` has no client-side default: it must come from the backend's /policy
@@ -30,6 +31,7 @@ const SCREENS = [
   { id: 'chat', label: 'Chat', permission: null },
   { id: 'dashboards', label: 'Responsible AI', permission: 'manage_policies' },
   { id: 'proxy', label: 'Proxy Manager', permission: 'manage_models' },
+  { id: 'workflows', label: 'Workflow Apps', permission: 'manage_workflows' },
   { id: 'finops', label: 'FinOps', permission: 'view_finops' },
   { id: 'aiops', label: 'AIOps', permission: 'view_aiops' },
   { id: 'configuration', label: 'Configuration', permission: 'manage_policies' },
@@ -119,6 +121,12 @@ export default function App() {
         return (
           <main className="admin-screen">
             <ProxyManager canManage={permissions.manage_models === true} />
+          </main>
+        )
+      case 'workflows':
+        return (
+          <main className="admin-screen">
+            <WorkflowApps canManage={permissions.manage_workflows === true} />
           </main>
         )
       case 'configuration':

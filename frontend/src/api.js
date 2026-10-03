@@ -394,3 +394,54 @@ export async function rotateLitellmKey(token) {
   const response = await fetchWithAuth(`${API_BASE}/gateway/admin/litellm-keys/${encodeURIComponent(token)}/rotate`, { method: 'POST', headers: authHeaders() })
   return parseResponse(response)
 }
+
+// ---- Workflow Apps (Activepieces control plane; docs/ACTIVEPIECES_INTEGRATION.md) ----
+export async function fetchWorkflowStatus() {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/status`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function bootstrapWorkflows(force = false) {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/bootstrap?force=${force ? 'true' : 'false'}`, { method: 'POST', headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function fetchWorkflowApps() {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/apps`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function createWorkflowApp(payload) {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/apps`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(payload) })
+  return parseResponse(response)
+}
+
+export async function publishWorkflowApp(appId) {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/publish`, { method: 'POST', headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function setWorkflowAppStatus(appId, enabled) {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/status`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ enabled }) })
+  return parseResponse(response)
+}
+
+export async function deleteWorkflowApp(appId) {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}`, { method: 'DELETE', headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function fetchWorkflowAppRuns(appId, limit = 20) {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/runs?limit=${limit}`, { headers: authHeaders() })
+  return parseResponse(response)
+}
+
+export async function chatWithWorkflowApp(appId, message, sessionId) {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/chat`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ message, session_id: sessionId || '' }) })
+  return parseResponse(response)
+}
+
+export async function syncWorkflowUsage() {
+  const response = await fetchWithAuth(`${API_BASE}/workflows/usage/sync`, { method: 'POST', headers: authHeaders() })
+  return parseResponse(response)
+}

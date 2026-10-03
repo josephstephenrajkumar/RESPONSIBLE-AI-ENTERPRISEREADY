@@ -7,6 +7,7 @@ from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.config import Settings
+from app import workflow_tokens
 
 try:
     import jwt
@@ -27,6 +28,9 @@ class AuthenticatedUser:
     tenant_id: str = 'default'
     groups: tuple[str, ...] = ()
     claims: dict[str, Any] | None = None
+    # Default attribution for callers that are applications rather than people
+    # (workflow apps): copied onto /chat requests that do not set client_id.
+    client_id: str = ''
 
 
 @lru_cache(maxsize=1)
@@ -69,6 +73,22 @@ async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     x_tenant_id: str | None = Header(default=None, alias='X-Tenant-Id'),
 ) -> AuthenticatedUser:
+    # Workflow apps authenticate with a gateway-issued app token (rai_app_...), in every
+    # environment. The identity is the app itself: its tenant, no admin groups.
+    if credentials is not None and credentials.credentials.startswith(workflow_tokens.TOKEN_PREFIX):
+        app = workflow_tokens.authenticate_app_token(credentials.credentials)
+        if app is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid workflow app token')
+        return AuthenticatedUser(
+            user_id=f"workflow-app:{app['app_id']}",
+            email='',
+            username='workflow-app',
+            tenant_id=app['tenant_id'],
+            groups=('workflow-app',),
+            claims={'workflow_app_id': app['app_id']},
+            client_id=f"workflow-app:{app['app_id']}",
+        )
+
     if not Settings.AUTH_REQUIRED:
         return AuthenticatedUser(
             user_id=Settings.LOCAL_DEV_USER_ID,
@@ -123,6 +143,12 @@ def user_can_view_aiops(user: AuthenticatedUser) -> bool:
     return bool(allowed_groups.intersection(user.groups))
 
 
+def user_can_manage_workflows(user: AuthenticatedUser) -> bool:
+    """Create, publish and delete workflow apps on the Activepieces engine (cost-bearing)."""
+    allowed_groups = {'admin', 'workflow-admin', 'model-admin'}
+    return bool(allowed_groups.intersection(user.groups))
+
+
 async def require_policy_manager(
     user: AuthenticatedUser = Depends(get_current_user),
 ) -> AuthenticatedUser:
@@ -163,6 +189,17 @@ async def require_aiops_viewer(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail='AIOps permission is required',
+        )
+    return user
+
+
+async def require_workflow_admin(
+    user: AuthenticatedUser = Depends(get_current_user),
+) -> AuthenticatedUser:
+    if not user_can_manage_workflows(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Workflow administration permission is required',
         )
     return user
 

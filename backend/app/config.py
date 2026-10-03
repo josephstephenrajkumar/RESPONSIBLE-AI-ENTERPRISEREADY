@@ -106,5 +106,26 @@ class Settings:
         if item.strip()
     ]
     FRONTEND_ORIGINS = FRONTEND_ORIGINS + EXTRA_FRONTEND_ORIGINS
+    # ------------------------------------------------------------------
+    # Activepieces workflow engine (docs/ACTIVEPIECES_INTEGRATION.md).
+    # The gateway owns the control plane: it signs in with a service account,
+    # installs the custom pieces, configures the LiteLLM-backed AI provider and
+    # creates, publishes and meters workflow apps. Secrets stay in the environment.
+    # ------------------------------------------------------------------
+    ACTIVEPIECES_ENABLED = os.getenv('ACTIVEPIECES_ENABLED', 'true').lower() == 'true'
+    # Engine as seen from the gateway process (API) and from the browser (UI).
+    ACTIVEPIECES_API_URL = os.getenv('ACTIVEPIECES_API_URL', 'http://localhost:8080').rstrip('/')
+    ACTIVEPIECES_PUBLIC_URL = (os.getenv('ACTIVEPIECES_PUBLIC_URL', '') or os.getenv('ACTIVEPIECES_API_URL', 'http://localhost:8080')).rstrip('/')
+    ACTIVEPIECES_SERVICE_EMAIL = os.getenv('ACTIVEPIECES_SERVICE_EMAIL', 'workflow-service@responsible-ai.local')
+    ACTIVEPIECES_SERVICE_PASSWORD = os.getenv('ACTIVEPIECES_SERVICE_PASSWORD', '')
+    # Gateway and proxy as seen from the Activepieces worker (the piece runtime).
+    ACTIVEPIECES_GATEWAY_URL = os.getenv('ACTIVEPIECES_GATEWAY_URL', 'http://host.docker.internal:8000').rstrip('/')
+    ACTIVEPIECES_LITELLM_URL = os.getenv('ACTIVEPIECES_LITELLM_URL', 'http://litellm:4000').rstrip('/')
+    # Built piece archives (workflows/pieces/dist/*.tgz) installed at bootstrap.
+    ACTIVEPIECES_PIECES_DIR = os.getenv('ACTIVEPIECES_PIECES_DIR', str(BASE_DIR.parent.parent / 'workflows' / 'pieces' / 'dist'))
+    WORKFLOW_BOOTSTRAP_ON_STARTUP = os.getenv('WORKFLOW_BOOTSTRAP_ON_STARTUP', 'true').lower() == 'true'
+    WORKFLOW_DEFAULT_BUDGET_USD = float(os.getenv('WORKFLOW_DEFAULT_BUDGET_USD', '10'))
+    WORKFLOW_PLATFORM_BUDGET_USD = float(os.getenv('WORKFLOW_PLATFORM_BUDGET_USD', '25'))
+    WORKFLOW_USAGE_SYNC_SECONDS = int(os.getenv('WORKFLOW_USAGE_SYNC_SECONDS', '300'))
     POLICY_PATH = BASE_DIR / 'storage' / 'policy_config.json'
     AUDIT_LOG_PATH = BASE_DIR / 'storage' / 'audit_log.jsonl'
