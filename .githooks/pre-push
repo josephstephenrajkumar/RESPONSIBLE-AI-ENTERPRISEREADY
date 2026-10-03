@@ -1,0 +1,5 @@
+#!/bin/sh
+# Blocks a push while any tracked file contains a secret-shaped value or a forbidden file is tracked.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Rule and procedure: CLAUDE.md, docs/NO_SECRETS_IN_GIT.md
+exec python3 "$(git rev-parse --show-toplevel)/scripts/check_no_secrets.py" --all --quiet

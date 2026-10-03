@@ -10,14 +10,16 @@ short version. The current dev environment (URLs, ids) is in
 git clone https://github.com/josephstephenrajkumar/RESPONSIBLE-AI-ENTERPRISEREADY.git
 cd RESPONSIBLE-AI-ENTERPRISEREADY
 cp backend/.env.example backend/.env           # set GROQ_API_KEY (used by the LiteLLM container)
-docker compose up -d                           # Jaeger, Postgres, LiteLLM proxy
+docker compose up -d                           # Jaeger, Postgres, LiteLLM proxy, Activepieces (Workflow Apps, :8080)
 (cd backend && pip install -r requirements.txt && uvicorn app.main:app --port 8000 --reload) &
 (cd frontend && npm install && npm run dev)
 ```
 
-Open http://localhost:5173. Zero-spend alternative: `tests/mock_llm_upstream.py` + `docker-compose.mock.yml` (root README).
+Open http://localhost:5173. The **Workflow Apps** tab needs `ACTIVEPIECES_SERVICE_PASSWORD` in `backend/.env` and the pieces built once (`cd workflows/pieces && npm install && npm run build`); see [ACTIVEPIECES_INTEGRATION.md](./ACTIVEPIECES_INTEGRATION.md). Zero-spend alternative: `tests/mock_llm_upstream.py` + `docker-compose.mock.yml` (root README).
 
 ## AWS dev (about 45 minutes, mostly waiting on Aurora, CloudFront and image push)
+
+Account, region, project name and local profile details: [AWS_ACCOUNT_AND_PROFILE.md](./AWS_ACCOUNT_AND_PROFILE.md).
 
 ```bash
 export AWS_PROFILE=<profile-for-767141477889> AWS_REGION=ap-southeast-1

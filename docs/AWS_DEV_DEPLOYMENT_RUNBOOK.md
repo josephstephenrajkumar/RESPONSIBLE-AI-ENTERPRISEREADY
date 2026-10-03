@@ -34,9 +34,18 @@ docker --version       # must be able to build linux/amd64 images (Docker Deskto
 node --version && npm --version
 ```
 
+Enable the repository git hooks once per clone. They block commits and pushes that contain secret values
+([NO_SECRETS_IN_GIT.md](NO_SECRETS_IN_GIT.md)):
+
+```bash
+git config core.hooksPath .githooks
+python3 scripts/check_no_secrets.py --all      # expect: secret scan: clean
+```
+
 ## 2. AWS Login
 
-Use any profile that resolves to the target account (IAM access key or SSO):
+Use any profile that resolves to the target account (IAM access key or SSO). The profiles known to work and
+where the project name is defined are listed in [AWS_ACCOUNT_AND_PROFILE.md](AWS_ACCOUNT_AND_PROFILE.md):
 
 ```bash
 export AWS_PROFILE=<your-profile>

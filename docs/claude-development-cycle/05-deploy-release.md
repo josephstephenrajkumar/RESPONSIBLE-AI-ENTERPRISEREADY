@@ -10,7 +10,8 @@ Before any deployment, a human release owner confirms:
 
 - the intended AWS account, profile, region, and environment;
 - the change is approved and tested;
-- secrets exist only in approved secret stores;
+- secrets exist only in approved secret stores, and `python3 scripts/check_no_secrets.py --all` reports clean
+  ([NO_SECRETS_IN_GIT.md](../NO_SECRETS_IN_GIT.md));
 - database migrations and backward compatibility are understood;
 - infrastructure plans show the intended resources and no unexpected destruction;
 - the backend image and frontend artifact are traceable to the reviewed change;

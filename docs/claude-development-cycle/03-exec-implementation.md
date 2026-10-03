@@ -26,6 +26,9 @@ Claude reads nearby code and tests, then edits only the smallest required slice.
 - Use structured persistence and telemetry APIs rather than string-parsing logs.
 - Avoid unrelated refactors, generated metadata, dependency churn, and speculative infrastructure.
 - Never commit credentials, `.env` files, database files, provider responses, or raw sensitive prompts.
+- Never write a secret value into any file, including documentation and records. `scripts/check_no_secrets.py`
+  runs before every commit, push and Claude edit; a finding is a stop, not something to bypass with `--no-verify`
+  ([NO_SECRETS_IN_GIT.md](../NO_SECRETS_IN_GIT.md)).
 - Do not run `apply`, `destroy`, image pushes, or production commands as part of implementation.
 
 ## Change Sequence

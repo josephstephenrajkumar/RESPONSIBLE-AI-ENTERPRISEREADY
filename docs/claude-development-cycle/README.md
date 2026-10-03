@@ -34,6 +34,9 @@ Claude may inspect repository files, explain behavior, propose a change, write a
 - state the current hypothesis and affected files before editing;
 - preserve existing APIs and responsible-AI controls unless the requirement changes them;
 - never invent secrets, credentials, policy approvals, test evidence, or deployment results;
+- never write a secret value into any file or commit message; document only its name and location, and let
+  `scripts/check_no_secrets.py` (run by the Claude Code hook and the git hooks) block anything else, see
+  [NO_SECRETS_IN_GIT.md](../NO_SECRETS_IN_GIT.md);
 - avoid sending prompts, audit data, or secrets to external services unless explicitly authorized;
 - keep code, infrastructure, documentation, and generated artifacts separate;
 - stop for human review at policy, security, data-model, infrastructure, and production gates;
