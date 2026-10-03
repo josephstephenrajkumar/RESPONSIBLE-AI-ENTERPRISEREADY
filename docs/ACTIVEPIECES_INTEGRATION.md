@@ -271,13 +271,14 @@ processing; usage sync pulled the proxy spend rows for the app keys (2 rows inse
 `by_client` shows every app with its cost and tokens; an invalid app token is rejected with 401; both apps deleted
 with their flows, connections and keys.
 
-AWS dev (same day): modules `ecs-activepieces` and `api-gateway-workflows` applied from saved plans, gateway image `f1b0192`
-rolled with the engine settings, frontend republished. The startup bootstrap created the service account on the fresh
+AWS dev (same day): modules `ecs-activepieces` and `api-gateway-workflows` applied from saved plans, gateway image rolled
+with the engine settings (final image `1c6425c`), frontend republished. The startup bootstrap created the service account on the fresh
 engine, installed both archives and the AI provider with no errors. The end-to-end script against the public API with a
 Cognito ID token passed every functional step: both templates answered through the gateway (0.8 s and 0.6 s), run
 `SUCCEEDED`, gateway metering and proxy spend visible in FinOps, invalid app token rejected. The only failures were in the
 forced re-bootstrap, where a second gateway worker could not see the provider created at startup and tried to create a
-duplicate; fixed by falling back to the recorded provider id and adopting an existing provider on a duplicate-name 409.
+duplicate; fixed by a database lease so one worker bootstraps at a time, duplicate removal by name and a retry after
+deduplicating. The final AWS run passed all 23 steps.
 
 Two demonstration apps created by the first run were left in place for inspection: "E2E Responsible AI chat" and
 "E2E direct LiteLLM chat" (Workflow Apps tab, or `GET /workflows/apps`).

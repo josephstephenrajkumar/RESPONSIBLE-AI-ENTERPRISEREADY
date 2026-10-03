@@ -110,7 +110,7 @@ $170–200/month at idle; see `docs/TECH_DEBT.md` for consolidation options.
 ## Addendum 2026-10-03 — Workflow Apps (Activepieces) deployed
 
 Applied from saved, reviewed plans (secrets 6 added; ecs-activepieces 17 added; api-gateway-workflows 6 added;
-ecs-ai-gateway task definition `:7`, image `f1b0192`). Design: [ACTIVEPIECES_INTEGRATION.md](../ACTIVEPIECES_INTEGRATION.md).
+ecs-ai-gateway rolled three times the same day, final task definition `:9`, image `1c6425c`). Design: [ACTIVEPIECES_INTEGRATION.md](../ACTIVEPIECES_INTEGRATION.md).
 
 - Engine (public, for the embedded builder and chat): `https://kv84d4ljc6.execute-api.ap-southeast-1.amazonaws.com`
   (HTTP API `responsible-ai-dev-workflows-api`, own VPC link, no API Gateway CORS; the engine sets its own)
@@ -130,8 +130,11 @@ ecs-ai-gateway task definition `:7`, image `f1b0192`). Design: [ACTIVEPIECES_INT
   `@activepieces/piece-forms` 0.5.0 present, AI provider "LiteLLM Proxy (Responsible AI)" created
 - Frontend rebuilt and uploaded (index.html, assets), CloudFront `E3SBHD9QG7B984` invalidated; the Workflow Apps tab
   appears for the `admin` group
-- Verification: `tests/workflow_apps_e2e.py` against the API with a Cognito ID token: Responsible AI chat app and direct
-  LiteLLM app created, published and answering through the gateway (0.8 s and 0.6 s), run `SUCCEEDED`, gateway metering and
-  proxy spend sync visible in FinOps, invalid app token rejected. Demo apps left in place for inspection.
+- Verification: `tests/workflow_apps_e2e.py` against the API with a Cognito ID token (temporary admin user, deleted
+  afterwards): all 23 steps pass on image `1c6425c`. Responsible AI chat app and direct LiteLLM app created, published and
+  answering through the gateway (0.6 s and 0.5 s), run `SUCCEEDED`, gateway metering and proxy spend sync visible in FinOps,
+  invalid app token rejected. Two demo apps from the first run left in place for inspection.
+- Lesson: two gateway workers bootstrapped the fresh engine at the same moment and created duplicate AI providers; the
+  bootstrap now takes a database lease and removes duplicates by name (verified on the final rollout).
 - Finding: the gateway task definition passes `DATABASE_URL` (with the Aurora master password) as a plain environment
   variable (TD-33). Not changed in this deployment.
