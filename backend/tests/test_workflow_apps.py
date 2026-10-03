@@ -364,3 +364,27 @@ class BootstrapTests(WorkflowBase):
         result = self._run_bootstrap(ap, [])
         self.assertFalse(result['engine_reachable'])
         self.assertTrue(result['errors'])
+
+    def test_forced_bootstrap_uses_stored_provider_id_when_listing_misses_it(self):
+        ap = FakeActivepiecesBootstrap(configs=[])
+        ap.pieces[workflow_templates.GATEWAY_PIECE] = {'version': '0.1.1'}
+        ap.pieces[workflow_templates.LITELLM_PIECE] = {'version': '0.1.1'}
+        workflow_apps.setting_set('ai_provider_id', 'prov_from_other_worker')
+        forced = self._run_bootstrap(ap, [], force=True)
+        self.assertEqual(forced['errors'], [])
+        self.assertEqual(forced['ai_provider']['state'], 'updated')
+        self.assertEqual(ap.providers[0][:2], ('update', 'prov_from_other_worker'))
+
+    def test_duplicate_name_on_create_is_adopted(self):
+        class LateListing(FakeActivepiecesBootstrap):
+            async def create_ai_provider(self, body):
+                self.configs = [{'id': 'prov_race', 'name': workflow_apps.AI_PROVIDER_NAME, 'provider': 'custom'}]
+                raise ActivepiecesError(409, {'code': 'VALIDATION', 'params': {'message': 'Another key of this provider already uses this name'}})
+        ap = LateListing()
+        ap.pieces[workflow_templates.GATEWAY_PIECE] = {'version': '0.1.1'}
+        ap.pieces[workflow_templates.LITELLM_PIECE] = {'version': '0.1.1'}
+        result = self._run_bootstrap(ap, [])
+        self.assertEqual(result['errors'], [])
+        self.assertEqual(result['ai_provider']['state'], 'updated')
+        self.assertEqual(ap.providers[0][:2], ('update', 'prov_race'))
+        self.assertEqual(workflow_apps.setting_get('ai_provider_id'), 'prov_race')

@@ -155,11 +155,15 @@ class ActivepiecesClient:
         return payload if isinstance(payload, list) else []
 
     async def list_ai_provider_configs(self) -> list:
+        """Platform-level provider configurations (the ones with display names and ids)."""
         status, payload = await self._request('GET', '/ai-providers/configs')
         if status >= 400:
+            raise ActivepiecesError(status, payload)
+        if isinstance(payload, dict):
+            for key in ('data', 'configs', 'items'):
+                if isinstance(payload.get(key), list):
+                    return payload[key]
             return []
-        if isinstance(payload, dict) and 'data' in payload:
-            return payload['data']
         return payload if isinstance(payload, list) else []
 
     async def create_ai_provider(self, body: Dict[str, Any]) -> Dict[str, Any]:

@@ -279,6 +279,12 @@ async def bootstrap(actor: str = 'system', force: bool = False) -> Dict[str, Any
             # configured providers (with their display names) come from /ai-providers/configs.
             configs = await activepieces.list_ai_provider_configs()
             existing = next((p for p in configs if isinstance(p, dict) and (p.get('displayName') or p.get('name')) == AI_PROVIDER_NAME), None)
+            stored_id = setting_get('ai_provider_id')
+            if existing is None and stored_id:
+                # Created earlier (for example by another worker's startup); the listing did not
+                # surface it, so update by the id we recorded instead of creating a duplicate.
+                existing = {'id': stored_id, 'name': AI_PROVIDER_NAME, 'source': 'stored'}
+            result['engine_ai_providers'] = [{'id': p.get('id'), 'name': p.get('displayName') or p.get('name'), 'provider': p.get('provider')} for p in configs if isinstance(p, dict)]
             if existing and not force:
                 result['ai_provider'] = {'id': existing.get('id'), 'state': 'present', 'models': provider_models()}
             else:
@@ -300,7 +306,17 @@ async def bootstrap(actor: str = 'system', force: bool = False) -> Dict[str, Any
                 if existing:
                     provider = await activepieces.update_ai_provider(existing['id'], {k: body[k] for k in ('displayName', 'config', 'auth')})
                 else:
-                    provider = await activepieces.create_ai_provider(body)
+                    try:
+                        provider = await activepieces.create_ai_provider(body)
+                    except ActivepiecesError as exc:
+                        if exc.status_code != 409:
+                            raise
+                        # Name already taken on the engine: adopt it instead of failing.
+                        again = next((p for p in await activepieces.list_ai_provider_configs() if isinstance(p, dict) and (p.get('displayName') or p.get('name')) == AI_PROVIDER_NAME), None)
+                        if again is None:
+                            raise
+                        existing = again
+                        provider = await activepieces.update_ai_provider(again['id'], {k: body[k] for k in ('displayName', 'config', 'auth')})
                 setting_set('platform_key_hash', _key_hash(created))
                 setting_set('platform_key_alias', created.get('key_alias') or PLATFORM_KEY_ALIAS)
                 provider_id = (provider.get('id') if isinstance(provider, dict) else None) or (existing or {}).get('id')
@@ -548,6 +564,14 @@ async def delete_app(app: WorkflowApp, actor: str) -> None:
 
 
 # ----------------------------------------------------------------------------- routes
+async def _engine_ai_providers() -> list:
+    try:
+        configs = await activepieces.list_ai_provider_configs()
+    except ActivepiecesError as exc:
+        return [{'error': f'{exc.status_code}: {str(exc.detail)[:160]}'}]
+    return [{'id': p.get('id'), 'name': p.get('displayName') or p.get('name'), 'provider': p.get('provider')} for p in configs if isinstance(p, dict)]
+
+
 @router.get('/status')
 async def workflow_status(user: AuthenticatedUser = Depends(require_workflow_admin)):
     reachable = await activepieces.ping() if Settings.ACTIVEPIECES_ENABLED else False
@@ -560,6 +584,7 @@ async def workflow_status(user: AuthenticatedUser = Depends(require_workflow_adm
         'engine_reachable': reachable, 'signed_in': activepieces.signed_in, 'project_id': activepieces.project_id,
         'bootstrapped_at': setting_get('bootstrapped_at'), 'pieces': setting_get('pieces', {}),
         'ai_provider_id': setting_get('ai_provider_id'), 'ai_provider_name': AI_PROVIDER_NAME,
+        'engine_ai_providers': await _engine_ai_providers() if reachable else [],
         'last_bootstrap': _state['last_bootstrap'], 'last_usage_sync': _state['last_usage_sync'] or setting_get('usage_sync_last'),
         'archives': [{'name': a['name'], 'version': a['version']} for a in piece_archives()],
         'templates': [{'id': k, **v} for k, v in templates.TEMPLATES.items()],
