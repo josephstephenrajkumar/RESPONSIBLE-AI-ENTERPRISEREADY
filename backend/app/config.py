@@ -127,5 +127,13 @@ class Settings:
     WORKFLOW_DEFAULT_BUDGET_USD = float(os.getenv('WORKFLOW_DEFAULT_BUDGET_USD', '10'))
     WORKFLOW_PLATFORM_BUDGET_USD = float(os.getenv('WORKFLOW_PLATFORM_BUDGET_USD', '25'))
     WORKFLOW_USAGE_SYNC_SECONDS = int(os.getenv('WORKFLOW_USAGE_SYNC_SECONDS', '300'))
+    # Pieces the Workflow Studio offers (comma separated). Empty = every piece in the engine catalogue.
+    WORKFLOW_STUDIO_PIECES = _csv(os.getenv('WORKFLOW_STUDIO_PIECES', ','.join([
+        '@responsible-ai/piece-responsible-ai-gateway', '@responsible-ai/piece-litellm-proxy', '@activepieces/piece-forms',
+        '@activepieces/piece-webhook', '@activepieces/piece-schedule', '@activepieces/piece-http', '@activepieces/piece-ai',
+        '@activepieces/piece-data-mapper', '@activepieces/piece-json', '@activepieces/piece-text-helper', '@activepieces/piece-date-helper',
+        '@activepieces/piece-math-helper', '@activepieces/piece-delay', '@activepieces/piece-store', '@activepieces/piece-csv',
+        '@activepieces/piece-slack', '@activepieces/piece-google-sheets', '@activepieces/piece-gmail', '@activepieces/piece-microsoft-teams',
+    ])))
     POLICY_PATH = BASE_DIR / 'storage' / 'policy_config.json'
     AUDIT_LOG_PATH = BASE_DIR / 'storage' / 'audit_log.jsonl'

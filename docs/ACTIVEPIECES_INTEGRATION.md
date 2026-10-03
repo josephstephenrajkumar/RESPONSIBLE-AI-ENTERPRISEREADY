@@ -291,6 +291,8 @@ LiteLLM writes its spend log in batches, so ingestion is eventually consistent.
 
 ## 11. Open items and follow-ups
 
+- Builder login and separate engine URL raised at review: options and recommendation in [WORKFLOW_STUDIO_PLAN.md](WORKFLOW_STUDIO_PLAN.md).
+
 - Enterprise licence evaluation for SSO embedding and per-tenant projects (section 8; TD-31).
 - `ecs-activepieces` Terraform module, Aurora database, Redis and secrets for AWS dev; deploy on instruction (TD-32).
 - Place the public chat page behind the gateway or an authenticating proxy before any internet exposure (TD-30).

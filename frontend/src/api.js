@@ -445,3 +445,22 @@ export async function syncWorkflowUsage() {
   const response = await fetchWithAuth(`${API_BASE}/workflows/usage/sync`, { method: 'POST', headers: authHeaders() })
   return parseResponse(response)
 }
+
+// ---- Workflow Studio (our own builder over the engine API through the gateway) ----
+const studioUrl = (appId, suffix) => `${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/studio${suffix}`
+export async function fetchStudioPieces(search = '', all = false) { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/studio/pieces?search=${encodeURIComponent(search)}${all ? '&all=true' : ''}`, { headers: authHeaders() })) }
+export async function fetchStudioStepSample(appId, stepName, kind = 'OUTPUT') { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/studio/steps/${encodeURIComponent(stepName)}/sample?kind=${kind}`, { headers: authHeaders() })) }
+export async function fetchStudioPiece(name) { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/studio/pieces/${name}`, { headers: authHeaders() })) }
+export async function fetchStudioCatalogue() { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/studio/catalogue`, { headers: authHeaders() })) }
+export async function updateStudioCatalogue(pieces) { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/studio/catalogue`, { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify({ pieces }) })) }
+export async function fetchStudioFlow(appId) { return parseResponse(await fetchWithAuth(studioUrl(appId, '/flow'), { headers: authHeaders() })) }
+export async function applyStudioOperation(appId, type, request) { return parseResponse(await fetchWithAuth(studioUrl(appId, '/operations'), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ type, request }) })) }
+export async function fetchStudioOptions(appId, body) { return parseResponse(await fetchWithAuth(studioUrl(appId, '/options'), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(body) })) }
+export async function fetchStudioVersions(appId) { return parseResponse(await fetchWithAuth(studioUrl(appId, '/versions'), { headers: authHeaders() })) }
+export async function fetchStudioConnections(appId) { return parseResponse(await fetchWithAuth(studioUrl(appId, '/connections'), { headers: authHeaders() })) }
+export async function createStudioConnection(appId, body) { return parseResponse(await fetchWithAuth(studioUrl(appId, '/connections'), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(body) })) }
+export async function deleteStudioConnection(appId, connectionId) { return parseResponse(await fetchWithAuth(studioUrl(appId, `/connections/${encodeURIComponent(connectionId)}`), { method: 'DELETE', headers: authHeaders() })) }
+export async function studioOAuthUrl(appId, body) { return parseResponse(await fetchWithAuth(studioUrl(appId, '/oauth2/authorization-url'), { method: 'POST', headers: jsonHeaders(), body: JSON.stringify(body) })) }
+export async function testStudioStep(appId, stepName) { return parseResponse(await fetchWithAuth(studioUrl(appId, `/steps/${encodeURIComponent(stepName)}/test`), { method: 'POST', headers: authHeaders() })) }
+export async function fetchStudioRun(appId, runId) { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/runs/${encodeURIComponent(runId)}`, { headers: authHeaders() })) }
+export async function retryStudioRun(appId, runId, strategy = 'ON_LATEST_VERSION') { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/runs/${encodeURIComponent(runId)}/retry?strategy=${strategy}`, { method: 'POST', headers: authHeaders() })) }

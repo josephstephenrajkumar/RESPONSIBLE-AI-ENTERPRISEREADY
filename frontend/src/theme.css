@@ -1,0 +1,47 @@
+/* Design tokens for the portal. Every screen (and the Workflow Studio) reads these variables,
+   so the Activate brand is applied by overriding this file (or the [data-theme] block below)
+   with the values from the brand guide: colours, type, radii, elevation. */
+:root {
+  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-bg: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+  --color-text: #1f2937;
+  --color-text-muted: #6b7280;
+  --color-text-strong: #111827;
+
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-soft: #eef2ff;
+  --color-primary-soft-text: #3730a3;
+  --color-primary-ring: #dbeafe;
+
+  --color-success-bg: #ecfdf5; --color-success-text: #065f46; --color-success-border: #a7f3d0; --color-success: #16a34a;
+  --color-warn-bg: #fffbeb;    --color-warn-text: #92400e;    --color-warn-border: #fde68a;    --color-warn: #d97706;
+  --color-danger-bg: #fef2f2;  --color-danger-text: #991b1b;  --color-danger-border: #fecaca;  --color-danger: #dc2626;
+  --color-info-bg: #dbeafe;    --color-info-text: #1e40af;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 10px 30px rgba(15, 23, 42, 0.08);
+  --shadow-modal: 0 20px 60px rgba(15, 23, 42, 0.25);
+
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px;
+  --control-height: 40px;
+  --control-height-sm: 32px;
+}
+
+/* Activate portal brand: set data-theme="activate" on <html> and fill in the brand values. */
+:root[data-theme="activate"] {
+  /* placeholders until the brand source is supplied */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+}

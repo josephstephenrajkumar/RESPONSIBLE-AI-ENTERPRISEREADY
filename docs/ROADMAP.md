@@ -14,6 +14,7 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | **Scale & platform** | The gateway serves hundreds of concurrent users and other applications in the organisation. |
 | **Platform integration & guided configuration** | The AI App control plane discovers the gateway at run time and receives gateway-issued credentials; administrators configure every scope with examples, validation and AI assistance. See [PROXY_MANAGER_ENTERPRISE_DESIGN.md](PROXY_MANAGER_ENTERPRISE_DESIGN.md). |
 | **Multi-tenancy** | Tenants get separated data, configuration, credentials, budgets and policies, with a choice of isolation tier. See [MULTI_TENANCY_DESIGN.md](MULTI_TENANCY_DESIGN.md). |
+| **Workflow apps** | Administrators build and publish workflow apps inside the portal, in the portal's own look, with AI inference through the LiteLLM proxy and governed chat through the gateway; the Activepieces engine is an internal backend. See [ACTIVEPIECES_INTEGRATION.md](ACTIVEPIECES_INTEGRATION.md) and [WORKFLOW_STUDIO_PLAN.md](WORKFLOW_STUDIO_PLAN.md). |
 
 > **Activate AI Platform documents.** Every requirement on this roadmap is mirrored into the Activate specifications in
 > `docs/AI platform /` (Word): *Activate AI Platform Overall Roadmap* v1.5 (section 1.3 maps each requirement to a Phase 0–4 row
@@ -33,6 +34,49 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 - Tests: unit tests for the client and aggregations; `LITELLM-*`, `GATEWAY-01`, `FINOPS-01`, `AIOPS-01` scenarios.
 
 **Exit criteria met**: no provider key needed by the application in proxy mode; cost metered from the proxy on every call; dashboards populated from live data; infra validates.
+
+### Workflow Studio track (Track 2 of [WORKFLOW_STUDIO_PLAN.md](WORKFLOW_STUDIO_PLAN.md)) — delivered alongside Sprints 2–3
+
+Context: the first Workflow Apps delivery (2026-10-03, [ACTIVEPIECES_INTEGRATION.md](ACTIVEPIECES_INTEGRATION.md)) embedded
+the Activepieces builder in an iframe with its own login and URL. The review asked for the builder inside our front end,
+styled as the Activate portal. Custom appearance of the engine UI is enterprise-only, so the builder becomes ours and the
+engine becomes an internal backend.
+
+#### Sprint WS-1 — Studio foundation: flow editor over the engine API
+
+- Gateway Studio API (tenant-scoped, Cognito): curated piece catalogue and piece metadata, dynamic property options, flow read and
+  allow-listed flow operations (trigger, add/update/delete/move/duplicate step, rename, sample data), app-scoped connections
+  (custom auth, secret text, basic auth), step test, run detail with step input/output, flow versions.
+- Front end: theme tokens (`theme.css`) and shared UI primitives so the Studio and the rest of the portal share one look; the
+  Activate brand values are dropped in once the brand source is provided.
+- Workflow Studio screen: step list, piece and action picker, property forms generated from piece metadata, connection picker and
+  creator, expression helper for data mapping, step test panel, publish and status.
+- Workflow Apps screen opens the Studio instead of the engine builder; app chat is our own chat window over the gateway proxy.
+- Tests: unit tests for the Studio API with engine fakes; end-to-end script that builds a flow through the Studio API, publishes and
+  chats.
+
+**Exit criteria**: a Responsible AI chat app can be assembled step by step in the Studio without the engine UI, published and
+used; no engine login or engine URL in the user journey.
+
+#### Sprint WS-2 — Runs, templates and data mapping polish
+
+- Run history with per-step input/output and failed-step diagnostics; re-run from the Studio.
+- Template gallery with one-click creation; expression picker driven by previous steps' sample data; JSON and array property
+  editors; markdown preview for replies.
+- Versions: list and restore drafts.
+- Curated catalogue management (which pieces the Studio offers) from the Studio's admin panel.
+
+**Exit criteria**: an administrator builds a three-step app with a dynamic property, tests each step, publishes, and reads the run.
+
+#### Sprint WS-3 — Engine internal, router and loop steps, OAuth connections
+
+- Remove the engine's public HTTP API and all iframes; the engine is reachable only from the gateway; public chat and form routes
+  are no longer exposed.
+- Router (branches) and loop steps and the Code step in the Studio.
+- OAuth2 connections brokered through the portal's own callback page.
+- AWS: engine behind the gateway only; snapshot, runbook and Activate specification updates.
+
+**Exit criteria**: engine has no public URL; a branching flow is built and published from the Studio; an OAuth connection can be created.
 
 ### Sprint 2 — Proxy in AWS, budgets, hardening
 
@@ -122,6 +166,8 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | M13 Settings hierarchy GA (tenant → department → application, inheritance, scope switcher) | Sprint 3 | M9 |
 | M14 AI App control plane integrated: discovery document, capability manifest, gateway-issued credentials, token exchange, events | Sprint 4 | M13 |
 | M15 Guided configuration: catalogue, validation, profiles (Sprint 3) and copilot (Sprint 5) | Sprints 3, 5 | M13, M4 |
+| M16 Activepieces engine deployed as a managed backend with the Workflow Apps control plane | ✅ 2026-10-03 (dev) | M2 |
+| M17 Workflow Studio GA: builder in the portal, engine internal, no engine UI or URL | Sprints WS-1 to WS-3 | M16 |
 
 ## Success metrics
 
@@ -134,3 +180,4 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | Framework-mode p95 | ~20 s (inline judges) | < code-mode p95 + 1 s |
 | Fallback rate | 1 of 19 (chaos test) | < 1 % in production |
 | Time to add a provider/model | code change + release | config change + proxy redeploy |
+| Workflow app built without leaving the portal | iframe to the engine UI with its own login | 100 % in the Studio, no engine login or URL |

@@ -1,64 +1,85 @@
 import { useEffect, useState } from 'react'
 import {
-  bootstrapWorkflows, chatWithWorkflowApp, createWorkflowApp, deleteWorkflowApp, fetchGatewayModels,
-  fetchWorkflowAppRuns, fetchWorkflowApps, fetchWorkflowStatus, publishWorkflowApp, setWorkflowAppStatus, syncWorkflowUsage
+  bootstrapWorkflows, createWorkflowApp, deleteWorkflowApp, fetchGatewayModels, fetchStudioCatalogue, fetchStudioPieces,
+  fetchWorkflowApps, fetchWorkflowStatus, publishWorkflowApp, setWorkflowAppStatus, syncWorkflowUsage, updateStudioCatalogue,
 } from '../api'
 import { StatusDot, formatUsd } from './charts'
+import { Button, EmptyRow, Field, Modal, Notice, Pill, useNotice } from './ui'
+import WorkflowStudio from '../studio/WorkflowStudio'
 
-// Workflow Apps: build and publish workflow apps on the Activepieces engine from
-// inside the gateway. The gateway owns credentials and the app registry; the
-// engine's builder and chat UI are embedded from an allow-listed origin.
-// docs/ACTIVEPIECES_INTEGRATION.md
+// Workflow Apps: build and publish workflow apps from inside the portal. The gateway owns the
+// engine (service account, credentials, app registry); the Workflow Studio is our own builder
+// over the engine API, so the engine's UI, origin and login never appear to users.
+// docs/ACTIVEPIECES_INTEGRATION.md · docs/WORKFLOW_STUDIO_PLAN.md
 
-function Notice({ notice }) {
-  if (!notice) return null
-  return <div className={`notice ${notice.tone || 'ok'}`}>{notice.text}</div>
-}
-function useNotice() {
-  const [notice, setNotice] = useState(null)
-  return {
-    notice,
-    ok: (text) => setNotice({ tone: 'ok', text }),
-    warn: (text) => setNotice({ tone: 'warn', text }),
-    fail: (err) => setNotice({ tone: 'error', text: typeof err === 'string' ? err : (err?.message || 'Request failed') }),
-    clear: () => setNotice(null),
-  }
-}
+const STATUS_TONE = { draft: 'draft', published: 'ok', disabled: 'neutral' }
 
-const STATUS_PILL = { draft: 'status-draft', published: 'enabled', disabled: 'disabled' }
-
-function EngineStatus({ status, onBootstrap, busy }) {
+function EngineStatus({ status, onBootstrap, onCatalogue, busy, canManage }) {
   if (!status) return <p className="muted">Loading engine status...</p>
-  const pieces = status.pieces || {}
-  const pieceRows = Object.entries(pieces)
+  const pieceRows = Object.entries(status.pieces || {})
   const okDot = status.engine_reachable ? (status.bootstrapped_at ? 'ok' : 'warn') : 'error'
+  const providers = status.engine_ai_providers || []
   return (
-    <div className="proxy-section">
-      <div className="panel-title-row">
-        <h3>Workflow engine <StatusDot status={okDot} /></h3>
-        <div className="button-row">
-          <button type="button" className="ghost" disabled={busy} onClick={() => onBootstrap(false)}>{busy === 'bootstrap' ? 'Bootstrapping...' : 'Bootstrap engine'}</button>
-          <a className="tracing-badge enabled" href={status.public_url} target="_blank" rel="noreferrer">Open Activepieces ↗</a>
-        </div>
-      </div>
+    <details className="proxy-section">
+      <summary className="panel-title-row" style={{ cursor: 'pointer' }}>
+        <h3 style={{ margin: 0 }}>Workflow engine <StatusDot status={okDot} /> <span className="muted" style={{ fontWeight: 400, fontSize: '0.8rem' }}>{status.engine_reachable ? 'reachable' : 'unreachable'} · {status.bootstrapped_at ? `bootstrapped ${new Date(status.bootstrapped_at).toLocaleString()}` : 'not bootstrapped'}</span></h3>
+      </summary>
+      {canManage && <div className="button-row" style={{ margin: '8px 0' }}>
+        <Button variant="ghost" size="sm" disabled={!!busy} onClick={() => onBootstrap(false)}>{busy === 'bootstrap' ? 'Bootstrapping...' : 'Bootstrap engine'}</Button>
+        <Button variant="ghost" size="sm" onClick={onCatalogue}>Studio catalogue</Button>
+      </div>}
       <div className="kv-grid">
-        <div><span>Engine</span><code>{status.public_url}</code></div>
-        <div><span>Reachable</span>{status.engine_reachable ? 'yes' : 'no'} · signed in {status.signed_in ? 'yes' : 'no'}</div>
+        <div><span>Engine (internal)</span><code>{status.api_url}</code></div>
         <div><span>Service account</span>{status.service_configured ? status.service_email : 'not configured (ACTIVEPIECES_SERVICE_PASSWORD)'}</div>
-        <div><span>Bootstrapped</span>{status.bootstrapped_at ? new Date(status.bootstrapped_at).toLocaleString() : 'never'}</div>
-        <div><span>AI provider</span>{status.ai_provider_id ? `${status.ai_provider_name} (${status.ai_provider_id})` : 'not configured'}</div>
+        <div><span>Signed in</span>{status.signed_in ? 'yes' : 'no'}</div>
+        <div><span>AI provider</span>{status.ai_provider_id ? `${status.ai_provider_name} (${status.ai_provider_id})` : 'not configured'}{providers.length > 1 && <span className="warning-text"> · {providers.length} providers on the engine</span>}</div>
         <div><span>Engine → gateway / proxy</span><code>{status.gateway_url_for_engine}</code><br /><code>{status.litellm_url_for_engine}</code></div>
       </div>
       {pieceRows.length > 0 && (
         <div className="table-wrap" style={{ marginTop: 12 }}>
           <table className="policy-table finops-table"><thead><tr><th>Piece</th><th>Version</th><th>State</th></tr></thead>
-            <tbody>{pieceRows.map(([name, info]) => <tr key={name}><td><code>{name}</code></td><td>{info?.version || '—'}</td><td><span className={`pill ${info?.state === 'failed' || info?.state === 'missing' ? 'disabled' : 'enabled'}`}>{info?.state || '—'}</span>{info?.error && <div className="muted" style={{ fontSize: '0.72rem' }}>{info.error}</div>}</td></tr>)}</tbody>
+            <tbody>{pieceRows.map(([name, info]) => <tr key={name}><td><code>{name}</code></td><td>{info?.version || '—'}</td><td><Pill tone={info?.state === 'failed' || info?.state === 'missing' ? 'danger' : 'ok'}>{info?.state || '—'}</Pill>{info?.error && <div className="muted" style={{ fontSize: '0.72rem' }}>{info.error}</div>}</td></tr>)}</tbody>
           </table>
         </div>
       )}
       {status.last_bootstrap?.errors?.length > 0 && <div className="notice warn">{status.last_bootstrap.errors.join(' · ')}</div>}
+      {status.last_bootstrap?.note && <p className="muted" style={{ fontSize: '0.78rem' }}>{status.last_bootstrap.note}</p>}
       <p className="muted" style={{ fontSize: '0.78rem' }}>{status.edition_notes}</p>
-    </div>
+    </details>
+  )
+}
+
+function CatalogueDialog({ onClose }) {
+  const [all, setAll] = useState([])
+  const [chosen, setChosen] = useState(null)
+  const [defaults, setDefaults] = useState([])
+  const [filter, setFilter] = useState('')
+  const [busy, setBusy] = useState(false)
+  const n = useNotice()
+  useEffect(() => {
+    Promise.all([fetchStudioPieces('', true), fetchStudioCatalogue()]).then(([pieces, cat]) => { setAll(pieces.pieces || []); setChosen(new Set(cat.pieces || [])); setDefaults(cat.default || []) }).catch(n.fail)
+  }, [])
+  const save = async () => {
+    setBusy(true); n.clear()
+    try {
+      // Keep the configured order for pieces already in the catalogue, append new picks alphabetically.
+      const ordered = [...defaults.filter(p => chosen.has(p)), ...all.map(p => p.name).filter(name => chosen.has(name) && !defaults.includes(name)).sort()]
+      await updateStudioCatalogue(ordered); n.ok('Catalogue saved. Builders see these pieces in the step picker.')
+    } catch (err) { n.fail(err) } finally { setBusy(false) }
+  }
+  const visible = all.filter(p => !filter || (p.displayName || '').toLowerCase().includes(filter.toLowerCase()) || (p.name || '').toLowerCase().includes(filter.toLowerCase()))
+  return (
+    <Modal title="Studio catalogue" onClose={onClose} width="min(900px, 100%)" footer={<><Button disabled={busy || !chosen} onClick={save}>{busy ? 'Saving…' : 'Save catalogue'}</Button><Button variant="ghost" onClick={() => setChosen(new Set(defaults))}>Reset to default</Button><Button variant="ghost" onClick={onClose}>Close</Button></>}>
+      <p className="muted" style={{ marginTop: 0 }}>Pieces builders may add to a workflow. AI steps should use the Responsible AI Gateway or LiteLLM Proxy pieces so inference stays governed and metered; other pieces call their APIs directly.</p>
+      <Notice notice={n.notice} />
+      <input className="studio-search" placeholder="Filter pieces…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+      <div className="muted" style={{ fontSize: '0.75rem', marginBottom: 6 }}>{chosen ? `${chosen.size} of ${all.length} pieces enabled` : 'Loading…'}</div>
+      <div className="catalogue-list">
+        {chosen && visible.map(p => (
+          <label key={p.name}><input type="checkbox" checked={chosen.has(p.name)} onChange={(e) => { const next = new Set(chosen); e.target.checked ? next.add(p.name) : next.delete(p.name); setChosen(next) }} />{p.logoUrl && <img src={p.logoUrl} alt="" />}<span>{p.displayName}<br /><code style={{ fontSize: '0.68rem' }}>{p.name}</code></span></label>
+        ))}
+      </div>
+    </Modal>
   )
 }
 
@@ -71,89 +92,33 @@ function CreateForm({ status, models, onCreated, canManage }) {
   const submit = async () => {
     setBusy(true); n.clear()
     try {
-      const payload = { ...form, monthly_budget_usd: form.monthly_budget_usd === '' ? 0 : Number(form.monthly_budget_usd) }
-      const created = await createWorkflowApp(payload)
-      n.ok(`Created ${created.name} (${created.id}). Open the builder to review the flow, then publish.`)
+      const created = await createWorkflowApp({ ...form, monthly_budget_usd: form.monthly_budget_usd === '' ? 0 : Number(form.monthly_budget_usd) })
       setForm(prev => ({ ...prev, name: '', description: '' }))
       onCreated(created)
     } catch (err) { n.fail(err) } finally { setBusy(false) }
   }
   if (!canManage) return null
-  const selected = templates.find(t => t.id === form.template)
   return (
-    <div className="proxy-section">
-      <h3>New workflow app</h3>
+    <details className="proxy-section">
+      <summary style={{ cursor: 'pointer' }}><h3 style={{ display: 'inline', margin: 0 }}>New workflow app</h3> <span className="muted" style={{ fontSize: '0.8rem' }}>pick a template, then open it in the Studio</span></summary>
       <Notice notice={n.notice} />
+      <div className="template-gallery">
+        {templates.map(t => (
+          <button type="button" key={t.id} className={`template-card ${form.template === t.id ? 'active' : ''}`} onClick={() => set('template', t.id)}>
+            <strong>{t.label}</strong><span className="muted">{t.description}</span>
+          </button>
+        ))}
+      </div>
       <div className="inline-form">
-        <label>Name<input value={form.name} placeholder="Customer support assistant" onChange={(e) => set('name', e.target.value)} /></label>
-        <label>Template<select value={form.template} onChange={(e) => set('template', e.target.value)}>{templates.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}</select></label>
-        <label>Responsible AI mode<select value={form.rai_mode} onChange={(e) => set('rai_mode', e.target.value)}><option value="framework">framework</option><option value="code">code</option></select></label>
-        <label>Model<select value={form.model} onChange={(e) => set('model', e.target.value)}><option value="">gateway default</option>{models.map(m => <option key={m} value={m}>{m}</option>)}</select></label>
-        <label>Monthly budget (USD)<input type="number" step="0.5" min="0" value={form.monthly_budget_usd} placeholder="default" onChange={(e) => set('monthly_budget_usd', e.target.value)} /></label>
-        <label>Bot name<input value={form.bot_name} onChange={(e) => set('bot_name', e.target.value)} /></label>
-        <label className="span-2">Description<input value={form.description} placeholder="What this app does" onChange={(e) => set('description', e.target.value)} /></label>
+        <Field label="Name" required><input value={form.name} placeholder="Customer support assistant" onChange={(e) => set('name', e.target.value)} /></Field>
+        <Field label="Responsible AI mode"><select value={form.rai_mode} onChange={(e) => set('rai_mode', e.target.value)}><option value="framework">framework</option><option value="code">code</option></select></Field>
+        <Field label="Model"><select value={form.model} onChange={(e) => set('model', e.target.value)}><option value="">gateway default</option>{models.map(m => <option key={m} value={m}>{m}</option>)}</select></Field>
+        <Field label="Monthly budget (USD)" hint="0 = platform default"><input type="number" step="0.5" min="0" value={form.monthly_budget_usd} placeholder="default" onChange={(e) => set('monthly_budget_usd', e.target.value)} /></Field>
+        <Field label="Bot name"><input value={form.bot_name} onChange={(e) => set('bot_name', e.target.value)} /></Field>
+        <Field label="Description" span><input value={form.description} placeholder="What this app does" onChange={(e) => set('description', e.target.value)} /></Field>
       </div>
-      {selected && <p className="muted" style={{ marginTop: 0 }}>{selected.description}</p>}
-      <div className="button-row"><button type="button" disabled={busy || !form.name.trim()} onClick={submit}>{busy ? 'Creating...' : 'Create app'}</button></div>
-    </div>
-  )
-}
-
-function TestChat({ app }) {
-  const [message, setMessage] = useState('')
-  const [turns, setTurns] = useState([])
-  const [busy, setBusy] = useState(false)
-  const [sessionId] = useState(() => `test-${app.id}-${Date.now()}`)
-  const n = useNotice()
-  const send = async () => {
-    if (!message.trim()) return
-    const text = message; setMessage(''); setBusy(true); n.clear()
-    setTurns(prev => [...prev, { role: 'user', text }])
-    try {
-      const result = await chatWithWorkflowApp(app.id, text, sessionId)
-      setTurns(prev => [...prev, { role: 'assistant', text: result.answer || JSON.stringify(result.raw), latency: result.latency_ms }])
-    } catch (err) { n.fail(err); setTurns(prev => [...prev, { role: 'assistant', text: `Failed: ${err.message}`, error: true }]) } finally { setBusy(false) }
-  }
-  return (
-    <div className="mini-chat">
-      <p className="muted" style={{ marginTop: 0 }}>Sends a turn to the published flow through the gateway (<code>POST /workflows/apps/{app.id}/chat</code>), so the round trip is exercised under your Cognito session rather than the public chat page.</p>
-      <Notice notice={n.notice} />
-      <div className="mini-chat-log">
-        {turns.length === 0 && <div className="muted">No turns yet.</div>}
-        {turns.map((t, i) => <div key={i} className={`bubble ${t.role}${t.error ? ' error' : ''}`}><div className="bubble-role">{t.role}</div><div style={{ whiteSpace: 'pre-wrap' }}>{t.text}</div>{t.latency != null && <div className="usage-footer">{t.latency} ms round trip</div>}</div>)}
-      </div>
-      <div className="composer"><input value={message} placeholder="Ask the workflow app..." disabled={busy} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send() }} /><button type="button" disabled={busy || !message.trim()} onClick={send}>{busy ? '...' : 'Send'}</button></div>
-    </div>
-  )
-}
-
-function AppPanels({ app, view, onClose }) {
-  const [runs, setRuns] = useState(null)
-  const n = useNotice()
-  useEffect(() => {
-    if (view === 'runs') fetchWorkflowAppRuns(app.id).then(r => setRuns(r.runs || [])).catch(n.fail)
-  }, [app.id, view])
-  const frameUrl = view === 'builder' ? app.builder_url : app.chat_url
-  return (
-    <div className="proxy-section workflow-panel">
-      <div className="panel-title-row">
-        <h3>{app.name} · {view === 'builder' ? 'builder' : view === 'chat' ? 'chat' : view === 'test' ? 'test through gateway' : 'runs'}</h3>
-        <div className="button-row">
-          {(view === 'builder' || view === 'chat') && <a className="tracing-badge enabled" href={frameUrl} target="_blank" rel="noreferrer">Open in new tab ↗</a>}
-          <button type="button" className="ghost" onClick={onClose}>Close</button>
-        </div>
-      </div>
-      <Notice notice={n.notice} />
-      {view === 'builder' && <p className="muted" style={{ marginTop: 0 }}>Community edition: the builder asks for the Activepieces login of the workflow service account (platform admin). Flows live in that account's project. Enterprise embedding removes this step.</p>}
-      {(view === 'builder' || view === 'chat') && <iframe title={`${app.name} ${view}`} src={frameUrl} className={`workflow-frame ${view === 'chat' ? 'workflow-chat-frame' : ''}`} allow="clipboard-read; clipboard-write" />}
-      {view === 'test' && <TestChat app={app} />}
-      {view === 'runs' && (
-        <div className="table-wrap"><table className="policy-table finops-table"><thead><tr><th>Run</th><th>Status</th><th>Started</th><th>Duration</th><th>Env</th></tr></thead>
-          <tbody>{(runs || []).map(r => <tr key={r.id}><td><code>{r.id}</code></td><td><span className={`pill ${r.status === 'SUCCEEDED' ? 'enabled' : (r.status === 'RUNNING' || r.status === 'QUEUED') ? 'status-review' : 'severity-high'}`}>{r.status}</span></td><td>{r.created ? new Date(r.created).toLocaleString() : '—'}</td><td>{r.duration_ms != null ? `${r.duration_ms} ms` : '—'}</td><td>{r.environment || '—'}</td></tr>)}
-            {runs && runs.length === 0 && <tr><td colSpan="5" className="muted">No runs yet.</td></tr>}
-            {!runs && <tr><td colSpan="5" className="muted">Loading runs...</td></tr>}</tbody></table></div>
-      )}
-    </div>
+      <div className="button-row"><Button disabled={busy || !form.name.trim()} onClick={submit}>{busy ? 'Creating...' : 'Create and open in Studio'}</Button></div>
+    </details>
   )
 }
 
@@ -162,7 +127,8 @@ export default function WorkflowApps({ canManage }) {
   const [apps, setApps] = useState([])
   const [models, setModels] = useState([])
   const [busy, setBusy] = useState('')
-  const [selected, setSelected] = useState(null) // { app, view }
+  const [open, setOpen] = useState(null) // app open in the Studio
+  const [catalogue, setCatalogue] = useState(false)
   const n = useNotice()
 
   const load = async () => {
@@ -183,48 +149,50 @@ export default function WorkflowApps({ canManage }) {
     setBusy(label); n.clear()
     try { const r = await fn(); if (okText) n.ok(okText); await load(); return r } catch (err) { n.fail(err); return null } finally { setBusy('') }
   }
-  const bootstrap = (force) => run('bootstrap', () => bootstrapWorkflows(force), 'Bootstrap finished. Check the piece and AI provider states below.')
-  const publish = (app) => run(`publish:${app.id}`, () => publishWorkflowApp(app.id), `${app.name} published. The chat page and the gateway test are live.`)
+  const bootstrap = (force) => run('bootstrap', () => bootstrapWorkflows(force), 'Bootstrap finished. Check the piece and AI provider states.')
+  const publish = (app) => run(`publish:${app.id}`, () => publishWorkflowApp(app.id), `${app.name} published.`)
   const toggle = (app) => run(`status:${app.id}`, () => setWorkflowAppStatus(app.id, app.status !== 'published'))
-  const remove = (app) => { if (!window.confirm(`Delete ${app.name}? The flow, its connections and its LiteLLM key are removed.`)) return; run(`delete:${app.id}`, () => deleteWorkflowApp(app.id), `${app.name} deleted.`); if (selected?.app.id === app.id) setSelected(null) }
+  const remove = (app) => { if (!window.confirm(`Delete ${app.name}? The flow, its connections and its LiteLLM key are removed.`)) return; run(`delete:${app.id}`, () => deleteWorkflowApp(app.id), `${app.name} deleted.`); if (open?.id === app.id) setOpen(null) }
   const sync = () => run('sync', () => syncWorkflowUsage(), 'Workflow spend synchronised into FinOps.')
+
+  if (open) {
+    const current = apps.find(a => a.id === open.id) || open
+    return <WorkflowStudio app={current} canManage={canManage} onClose={() => { setOpen(null); load() }} onAppChanged={load} />
+  }
 
   return (
     <section className="panel">
       <div className="panel-title-row">
         <div>
           <h2>Workflow Apps</h2>
-          <p className="muted">Build and publish workflow apps on the Activepieces engine. Each app gets its own LiteLLM virtual key (budgeted, metered) and a gateway token for governed chat. AI steps go through the LiteLLM proxy; other API calls run directly.</p>
+          <p className="muted">Build, test and publish workflow apps in the Workflow Studio. Each app gets its own LiteLLM virtual key (budgeted, metered) and a gateway token for governed chat. AI steps go through the LiteLLM proxy; other API calls run directly.</p>
         </div>
-        {!canManage && <span className="pill disabled">read-only</span>}
+        {!canManage && <Pill tone="neutral">read-only</Pill>}
       </div>
       <Notice notice={n.notice} />
-      <EngineStatus status={status} onBootstrap={bootstrap} busy={busy} />
-      <CreateForm status={status} models={models} canManage={canManage} onCreated={(created) => { load(); setSelected({ app: created, view: 'builder' }) }} />
+      <EngineStatus status={status} onBootstrap={bootstrap} onCatalogue={() => setCatalogue(true)} busy={busy} canManage={canManage} />
+      <CreateForm status={status} models={models} canManage={canManage} onCreated={(created) => { load(); setOpen(created) }} />
       <div className="proxy-section">
-        <div className="panel-title-row"><h3>Apps</h3><div className="button-row"><button type="button" className="ghost" disabled={busy === 'sync'} onClick={sync}>{busy === 'sync' ? 'Syncing...' : 'Sync spend to FinOps'}</button><button type="button" className="ghost" onClick={load}>Refresh</button></div></div>
+        <div className="panel-title-row"><h3>Apps</h3><div className="button-row"><Button variant="ghost" size="sm" disabled={busy === 'sync'} onClick={sync}>{busy === 'sync' ? 'Syncing...' : 'Sync spend to FinOps'}</Button><Button variant="ghost" size="sm" onClick={load}>Refresh</Button></div></div>
         <div className="table-wrap"><table className="policy-table finops-table"><thead><tr><th>App</th><th>Template</th><th>Status</th><th>Model</th><th>Budget</th><th>Attribution</th><th></th></tr></thead>
           <tbody>{apps.map(app => (
             <tr key={app.id}>
-              <td><strong>{app.name}</strong><div className="muted" style={{ fontSize: '0.72rem' }}>{app.id} · {app.owner_email || app.owner_user_id}</div></td>
+              <td><button type="button" className="link-btn" style={{ fontSize: '0.9rem', fontWeight: 700 }} onClick={() => setOpen(app)}>{app.name}</button><div className="muted" style={{ fontSize: '0.72rem' }}>{app.id} · {app.owner_email || app.owner_user_id}</div></td>
               <td>{app.template_label}<div className="muted" style={{ fontSize: '0.72rem' }}>RAI {app.rai_mode}</div></td>
-              <td><span className={`pill ${STATUS_PILL[app.status] || 'disabled'}`}>{app.status}</span></td>
+              <td><Pill tone={STATUS_TONE[app.status] || 'neutral'}>{app.status}</Pill></td>
               <td><code>{app.model || 'default'}</code></td>
               <td>{formatUsd(app.monthly_budget_usd)} / 30d</td>
               <td><code>{app.client_id}</code></td>
               <td><div className="action-cell">
-                <button type="button" className="ghost" onClick={() => setSelected({ app, view: 'builder' })}>Builder</button>
-                <button type="button" className="ghost" disabled={app.status !== 'published'} onClick={() => setSelected({ app, view: 'chat' })}>Chat</button>
-                <button type="button" className="ghost" disabled={app.status !== 'published'} onClick={() => setSelected({ app, view: 'test' })}>Test</button>
-                <button type="button" className="ghost" onClick={() => setSelected({ app, view: 'runs' })}>Runs</button>
-                {canManage && <button type="button" disabled={busy === `publish:${app.id}`} onClick={() => publish(app)}>{busy === `publish:${app.id}` ? 'Publishing...' : (app.published_at ? 'Republish' : 'Publish')}</button>}
-                {canManage && app.published_at && <button type="button" className="ghost" disabled={busy === `status:${app.id}`} onClick={() => toggle(app)}>{app.status === 'published' ? 'Disable' : 'Enable'}</button>}
-                {canManage && <button type="button" className="danger" disabled={busy === `delete:${app.id}`} onClick={() => remove(app)}>Delete</button>}
+                <Button variant="ghost" size="sm" onClick={() => setOpen(app)}>Open Studio</Button>
+                {canManage && <Button size="sm" disabled={busy === `publish:${app.id}`} onClick={() => publish(app)}>{busy === `publish:${app.id}` ? 'Publishing...' : (app.published_at ? 'Republish' : 'Publish')}</Button>}
+                {canManage && app.published_at && <Button variant="ghost" size="sm" disabled={busy === `status:${app.id}`} onClick={() => toggle(app)}>{app.status === 'published' ? 'Disable' : 'Enable'}</Button>}
+                {canManage && <Button variant="danger" size="sm" disabled={busy === `delete:${app.id}`} onClick={() => remove(app)}>Delete</Button>}
               </div></td>
             </tr>))}
-            {apps.length === 0 && <tr><td colSpan="7" className="muted">No workflow apps yet. Create one above; the Responsible AI chat template reproduces the Chat tab as a workflow.</td></tr>}</tbody></table></div>
+            {apps.length === 0 && <EmptyRow colSpan={7}>No workflow apps yet. Create one above; the Responsible AI chat template reproduces the Chat tab as a workflow you can extend in the Studio.</EmptyRow>}</tbody></table></div>
       </div>
-      {selected && <AppPanels app={apps.find(a => a.id === selected.app.id) || selected.app} view={selected.view} onClose={() => setSelected(null)} />}
+      {catalogue && <CatalogueDialog onClose={() => setCatalogue(false)} />}
     </section>
   )
 }

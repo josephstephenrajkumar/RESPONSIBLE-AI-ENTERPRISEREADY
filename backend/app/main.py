@@ -60,6 +60,7 @@ from app.llm_client import bind_request_context, llm_client, reset_request_conte
 from app import gateway_settings
 from app.litellm_admin import LiteLLMAdminError, litellm_admin
 from app import workflow_apps
+from app import workflow_studio
 from app.activepieces_client import activepieces
 from app import litellm_bootstrap
 from app.model_catalog import CatalogError, model_catalog
@@ -113,6 +114,7 @@ app.add_middleware(
 
 # Workflow Apps control plane (Activepieces); docs/ACTIVEPIECES_INTEGRATION.md
 app.include_router(workflow_apps.router)
+app.include_router(workflow_studio.router)
 
 
 @app.on_event('startup')

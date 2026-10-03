@@ -147,6 +147,52 @@ class ActivepiecesClient:
             raise ActivepiecesError(status, payload)
         return payload or {}
 
+    async def list_pieces(self, search: str = '') -> list:
+        params: Dict[str, Any] = {'projectId': self.require_project()}
+        if search:
+            params['searchQuery'] = search
+        payload = await self._ok('GET', '/pieces', params=params)
+        return payload if isinstance(payload, list) else (payload.get('data') if isinstance(payload, dict) else []) or []
+
+    async def piece_options(self, body: Dict[str, Any]) -> Any:
+        return await self._ok('POST', '/pieces/options', json={'projectId': self.require_project(), **body})
+
+    async def list_connections(self, piece_name: Optional[str] = None, limit: int = 100) -> list:
+        params: Dict[str, Any] = {'projectId': self.require_project(), 'limit': limit}
+        if piece_name:
+            params['pieceName'] = piece_name
+        payload = await self._ok('GET', '/app-connections', params=params)
+        return (payload.get('data') if isinstance(payload, dict) else payload) or []
+
+    async def upsert_connection(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        """Generic upsert: body carries externalId, displayName, pieceName, type and the typed value."""
+        return await self._ok('POST', '/app-connections', json={**body, 'projectId': self.require_project()})
+
+    async def get_sample_data(self, flow_id: str, flow_version_id: str, step_name: str, kind: str = 'OUTPUT') -> Any:
+        """Stored sample payload for a step (empty object when none was recorded)."""
+        return await self._ok('GET', '/sample-data', params={'projectId': self.require_project(), 'flowId': flow_id, 'flowVersionId': flow_version_id, 'stepName': step_name, 'type': kind})
+
+    async def step_run(self, flow_version_id: str, step_name: str) -> Dict[str, Any]:
+        return await self._ok('POST', '/sample-data/test-step', json={'projectId': self.require_project(), 'flowVersionId': flow_version_id, 'stepName': step_name}, timeout=180.0)
+
+    async def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
+        status, payload = await self._request('GET', f'/flow-runs/{run_id}')
+        if status == 404:
+            return None
+        if status >= 400:
+            raise ActivepiecesError(status, payload)
+        return payload
+
+    async def retry_run(self, run_id: str, strategy: str = 'ON_LATEST_VERSION') -> Dict[str, Any]:
+        return await self._ok('POST', f'/flow-runs/{run_id}/retry', json={'projectId': self.require_project(), 'strategy': strategy})
+
+    async def list_flow_versions(self, flow_id: str, limit: int = 20) -> list:
+        payload = await self._ok('GET', f'/flows/{flow_id}/versions', params={'limit': limit})
+        return (payload.get('data') if isinstance(payload, dict) else payload) or []
+
+    async def oauth2_authorization_url(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        return await self._ok('POST', '/app-connections/oauth2/authorization-url', json={**body, 'projectId': self.require_project()})
+
     # ------------------------------------------------------------------ AI providers
     async def list_ai_providers(self) -> list:
         payload = await self._ok('GET', '/ai-providers', params={'projectId': self.require_project()})
