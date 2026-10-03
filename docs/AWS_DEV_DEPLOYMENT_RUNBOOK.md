@@ -361,3 +361,26 @@ done
 ```
 
 Empty the frontend and LiteLLM config buckets first if `destroy` reports they are not empty.
+
+## 16. Workflow Apps engine (Activepieces)
+
+Added 2026-10-03 ([ACTIVEPIECES_INTEGRATION.md](ACTIVEPIECES_INTEGRATION.md)). Deploy order: `secrets` (new keys) →
+`ecs-activepieces` → `api-gateway-workflows` → `ecs-ai-gateway` (new image with the piece archives and the
+`ACTIVEPIECES_*` settings) → frontend.
+
+1. Build the pieces once per change and stage them into the image context:
+   `cd workflows/pieces && npm install && npm run build && cd ../.. && cp -R workflows/pieces/dist/. backend/pieces/`
+   (`backend/pieces/` is gitignored; the Dockerfile copies it to `/app/pieces`).
+2. Apply `secrets`, then set the three values out of band (never in files):
+   `activepieces_encryption_key` = 32 hex characters, `activepieces_jwt_secret`, `activepieces_service_password`.
+3. Plan and apply `ecs-activepieces` from a saved plan; wait for the target `responsible-ai-dev-ap` to be healthy
+   (`/api/v1/flags`). The engine runs migrations on the shared Aurora database at first start.
+4. Plan and apply `api-gateway-workflows`; note its endpoint, it becomes `ACTIVEPIECES_PUBLIC_URL` on the gateway.
+5. Build, push and roll the gateway image as in section 8; the startup bootstrap creates the service account on a fresh
+   engine (first sign-up = platform admin), installs the archives and configures the AI provider. Check
+   `GET /workflows/status` (admin token): `signed_in`, `pieces` states and `last_bootstrap.errors == []`.
+6. Verify end to end: `python3 tests/workflow_apps_e2e.py --base-url "$API" --token "$TOKEN"` (add `--cleanup` to delete the
+   apps it creates).
+
+Builder access in the community edition is the engine login of the service account (TD-31). The public chat page of a
+published app is reachable by flow id (TD-30); keep it for internal use until it sits behind the gateway.

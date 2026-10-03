@@ -106,3 +106,32 @@ $170–200/month at idle; see `docs/TECH_DEBT.md` for consolidation options.
   - Key rotation (gateway-side) → new key issued with the same alias and model scope; one key per alias remains; verified on the local proxy that the old key is rejected (401) immediately. Note: LiteLLM's `/key/info` still answers 200 for a deleted key (cache); use `/key/list` as the source of truth.
   - Chat through the proxy with DB-held router settings → 200 "OK".
   - Refresh token issued by Cognito (frontend session refresh depends on it).
+
+## Addendum 2026-10-03 — Workflow Apps (Activepieces) deployed
+
+Applied from saved, reviewed plans (secrets 6 added; ecs-activepieces 17 added; api-gateway-workflows 6 added;
+ecs-ai-gateway task definition `:7`, image `f1b0192`). Design: [ACTIVEPIECES_INTEGRATION.md](../ACTIVEPIECES_INTEGRATION.md).
+
+- Engine (public, for the embedded builder and chat): `https://kv84d4ljc6.execute-api.ap-southeast-1.amazonaws.com`
+  (HTTP API `responsible-ai-dev-workflows-api`, own VPC link, no API Gateway CORS; the engine sets its own)
+- Engine (internal, used by the gateway and by the engine worker as `AP_FRONTEND_URL`):
+  `http://internal-responsible-ai-dev-ap-524368449.ap-southeast-1.elb.amazonaws.com`
+- ECS: cluster `responsible-ai-dev-activepieces-cluster`, service `responsible-ai-dev-activepieces` (1 task, 2 vCPU / 4 GB,
+  image `activepieces/activepieces:0.92.0` from Docker Hub via NAT), log group `/ecs/responsible-ai-dev-activepieces`,
+  ALB `responsible-ai-dev-ap`, health check `/api/v1/flags`, circuit breaker with rollback
+- Database: shares the Aurora database `responsible_ai` over SSL (RDS CA bundle in the module); queue in-memory
+  (`AP_REDIS_TYPE=MEMORY`), so `desired_count` stays 1 (TD-32 dev simplifications)
+- Secrets: `responsible-ai-dev/activepieces_encryption_key`, `activepieces_jwt_secret`, `activepieces_service_password`
+  (values set out of band; the gateway task mounts the service password)
+- Gateway task env: `ACTIVEPIECES_ENABLED=true`, `ACTIVEPIECES_API_URL` = internal ALB, `ACTIVEPIECES_PUBLIC_URL` = HTTP API,
+  `ACTIVEPIECES_GATEWAY_URL` = gateway internal ALB, `ACTIVEPIECES_LITELLM_URL` = proxy internal ALB, `ACTIVEPIECES_PIECES_DIR=/app/pieces`
+- Startup bootstrap on the fresh engine: service account signed up as platform admin, pieces
+  `@responsible-ai/piece-responsible-ai-gateway` 0.1.1 and `@responsible-ai/piece-litellm-proxy` 0.1.1 installed,
+  `@activepieces/piece-forms` 0.5.0 present, AI provider "LiteLLM Proxy (Responsible AI)" created
+- Frontend rebuilt and uploaded (index.html, assets), CloudFront `E3SBHD9QG7B984` invalidated; the Workflow Apps tab
+  appears for the `admin` group
+- Verification: `tests/workflow_apps_e2e.py` against the API with a Cognito ID token: Responsible AI chat app and direct
+  LiteLLM app created, published and answering through the gateway (0.8 s and 0.6 s), run `SUCCEEDED`, gateway metering and
+  proxy spend sync visible in FinOps, invalid app token rejected. Demo apps left in place for inspection.
+- Finding: the gateway task definition passes `DATABASE_URL` (with the Aurora master password) as a plain environment
+  variable (TD-33). Not changed in this deployment.

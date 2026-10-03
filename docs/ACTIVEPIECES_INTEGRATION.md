@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Status | Implemented and verified locally 2026-10-03 (section 10); AWS deployment pending the deploy instruction |
+| Status | Implemented, verified locally and deployed to dev AWS 2026-10-03 (section 10; snapshot addendum in `docs/aws-snapshots/`) |
 | Scope | Embedding the Activepieces workflow builder in the Responsible AI Enterprise Gateway front end, re-implementing the chat app as a workflow, and letting administrators build and publish new workflow apps whose AI calls go through the LiteLLM proxy |
 | Inputs | Read-only review of `activepieces-main` (version 0.92.0, 733 community pieces) and of this repository (frontend, backend, database, tests) |
 | Related | [ARCHITECTURE_DESIGN.md](ARCHITECTURE_DESIGN.md), [LITELLM_PROXY_MANAGER.md](LITELLM_PROXY_MANAGER.md), [MULTI_TENANCY_DESIGN.md](MULTI_TENANCY_DESIGN.md), [NO_SECRETS_IN_GIT.md](NO_SECRETS_IN_GIT.md), [BACKLOG.md](BACKLOG.md) |
@@ -270,6 +270,14 @@ create a `litellm-chat` app; publish; chat answered `DIRECT-OK` via the proxy in
 processing; usage sync pulled the proxy spend rows for the app keys (2 rows inserted, 0 on repeat); FinOps
 `by_client` shows every app with its cost and tokens; an invalid app token is rejected with 401; both apps deleted
 with their flows, connections and keys.
+
+AWS dev (same day): modules `ecs-activepieces` and `api-gateway-workflows` applied from saved plans, gateway image `f1b0192`
+rolled with the engine settings, frontend republished. The startup bootstrap created the service account on the fresh
+engine, installed both archives and the AI provider with no errors. The end-to-end script against the public API with a
+Cognito ID token passed every functional step: both templates answered through the gateway (0.8 s and 0.6 s), run
+`SUCCEEDED`, gateway metering and proxy spend visible in FinOps, invalid app token rejected. The only failures were in the
+forced re-bootstrap, where a second gateway worker could not see the provider created at startup and tried to create a
+duplicate; fixed by falling back to the recorded provider id and adopting an existing provider on a duplicate-name 409.
 
 Two demonstration apps created by the first run were left in place for inspection: "E2E Responsible AI chat" and
 "E2E direct LiteLLM chat" (Workflow Apps tab, or `GET /workflows/apps`).
