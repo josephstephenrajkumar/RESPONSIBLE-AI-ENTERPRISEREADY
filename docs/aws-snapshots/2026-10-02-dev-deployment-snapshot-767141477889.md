@@ -138,3 +138,21 @@ ecs-ai-gateway rolled three times the same day, final task definition `:9`, imag
   bootstrap now takes a database lease and removes duplicates by name (verified on the final rollout).
 - Finding: the gateway task definition passes `DATABASE_URL` (with the Aurora master password) as a plain environment
   variable (TD-33). Not changed in this deployment.
+
+## Addendum 2026-10-03 (later) — Workflow Studio; engine without a user-facing URL
+
+Gateway image `0aa6c16` (task definition `:10`) rolled from a reviewed plan: `ACTIVEPIECES_PUBLIC_URL` removed from the
+task environment, Workflow Studio routes added. Frontend rebuilt and uploaded (`index.html`, one CSS and one JS asset),
+CloudFront `E3SBHD9QG7B984` invalidated. Design: [ACTIVEPIECES_INTEGRATION.md](../ACTIVEPIECES_INTEGRATION.md) §5.3 and
+[WORKFLOW_STUDIO_PLAN.md](../WORKFLOW_STUDIO_PLAN.md) (Track 2).
+
+- Workflow Apps tab: no engine link or iframe; "Open Studio" builds, tests, publishes, inspects runs and chats inside the
+  portal under the Cognito session.
+- Verification with a temporary Cognito admin (deleted afterwards): `tests/workflow_studio_e2e.py` 23 of 23 and
+  `tests/workflow_apps_e2e.py --cleanup` 23 of 23 against the API. Step test through the engine 1.2 s; chat 0.5 to 0.7 s.
+- Pending operator action: destroy the legacy public engine API `responsible-ai-dev-workflows-api`
+  (`infra/live/dev/api-gateway-workflows`, 6 resources: API, stage, two routes, integration, VPC link). The destroy plan was
+  prepared; the apply is a protected action in the automated session. Until then the engine UI still answers on
+  `https://kv84d4ljc6.execute-api.ap-southeast-1.amazonaws.com` with its own login; nothing in the portal references it.
+- Rollout observation: for about a minute both task revisions served traffic (old revision 404 on the Studio routes);
+  verify after the old task drains.

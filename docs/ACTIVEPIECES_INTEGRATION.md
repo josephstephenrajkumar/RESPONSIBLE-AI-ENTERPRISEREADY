@@ -304,6 +304,32 @@ object directly (not `auth.props`); `/ai-providers?projectId` lists provider typ
 display names come from `/ai-providers/configs`; the engine finalises a run shortly after the synchronous reply;
 LiteLLM writes its spend log in batches, so ingestion is eventually consistent.
 
+### 10a. Workflow Studio verification (2026-10-03, local stack and AWS dev)
+
+| Check | Result |
+|---|---|
+| Backend unit tests | 65 passed, 12 of them for the Studio API (catalogue, flattening of router and loop trees, operation allow-list, tenant isolation, dynamic options, versions, connections including the OAuth2 URL, step test, run detail and retry) |
+| Frontend build | `vite build` succeeds; Studio, step picker, connection dialog, runs panel and app chat are in the bundle |
+| `tests/workflow_studio_e2e.py`, local stack | 23 of 23 steps |
+| `tests/workflow_studio_e2e.py`, AWS dev (gateway image `0aa6c16`, task definition `:10`) | 23 of 23 steps |
+| `tests/workflow_apps_e2e.py --cleanup`, AWS dev | 23 of 23 steps (templates, publish, chat, metering, spend sync, token boundary) |
+
+Studio steps, as run: curated catalogue (19 pieces) and piece metadata; blank app; trigger sample saved; gateway chat step
+added with the app's own connection; **step test** executed by the engine against the sample (answer `STUDIO-OK`, 1.0 s
+local, 1.2 s AWS); reply step added; flow renamed; draft valid; publish; chat through the gateway answered with the Studio
+footer (0.4 s, 0.5 s); run `SUCCEEDED` with per-step input and output in the run detail; versions listed (`LOCKED`); router
+added, Code step inside its first branch, loop added, all three removed again; `LOCK_AND_PUBLISH` rejected as a Studio
+operation (400); app deleted.
+
+Defects found and fixed: a step added through the API with `{{trigger['message']}}` resolved to an empty string at run time
+(the chat step then failed with a 422 from the gateway). Engine 0.92 stores references as `{{step['output']['field']}}`
+and migrates only imported flows; the Studio now emits that format (ADR-25). `POST /v1/sample-data/test-step` returns the
+queued TESTING run rather than the result (the engine streams it to its own UI over a websocket); the Studio polls the run
+until it settles.
+
+Rollout observation in AWS: for about a minute both task revisions served traffic and a run of the Studio suite in that
+window saw 404s from the old revision; the rerun after the old task drained passed every step.
+
 ## 11. Open items and follow-ups
 
 - Builder login and separate engine URL raised at review: resolved by the Workflow Studio (Track 2 of
