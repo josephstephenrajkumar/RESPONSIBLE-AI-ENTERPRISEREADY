@@ -24,6 +24,7 @@ dependency "secrets" {
       guardrails_token    = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
       litellm_gateway_key = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
       litellm_master_key  = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
+      activepieces_service_password = "arn:aws:secretsmanager:ap-southeast-1:767141477889:secret:mock"
     }
   }
 }
@@ -63,6 +64,22 @@ dependency "litellm" {
   }
 }
 
+dependency "engine" {
+  config_path = "../ecs-activepieces"
+
+  mock_outputs = {
+    engine_url = "http://mock-activepieces.internal"
+  }
+}
+
+dependency "engine_api" {
+  config_path = "../api-gateway-workflows"
+
+  mock_outputs = {
+    api_endpoint = "https://mock-workflows.execute-api.ap-southeast-1.amazonaws.com"
+  }
+}
+
 inputs = {
   project_name       = "responsible-ai"
   environment        = "dev"
@@ -89,6 +106,17 @@ inputs = {
   finops_monthly_budget_usd  = 50
 
   guardrails_token_secret_arn = ""
+
+  # Workflow Apps: the gateway owns the Activepieces control plane. Internal ALB for
+  # API calls, HTTP API endpoint for the embedded builder and chat, service password in
+  # Secrets Manager. The piece archives ship inside the gateway image (/app/pieces).
+  activepieces_enabled                     = true
+  activepieces_api_url                     = dependency.engine.outputs.engine_url
+  activepieces_public_url                  = dependency.engine_api.outputs.api_endpoint
+  activepieces_service_password_secret_arn = dependency.secrets.outputs.secret_arns.activepieces_service_password
+  activepieces_litellm_url                 = dependency.litellm.outputs.proxy_url
+  workflow_default_budget_usd              = 5
+  workflow_platform_budget_usd             = 10
   observability_console_url   = "https://ap-southeast-1.console.aws.amazon.com/xray/home?region=ap-southeast-1#/traces"
 
   cognito_region        = "ap-southeast-1"

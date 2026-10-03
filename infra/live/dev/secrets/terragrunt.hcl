@@ -61,6 +61,21 @@ inputs = {
     jwt_secret = {
       description = "JWT signing secret for Cognito"
     }
+
+    # Activepieces workflow engine (docs/ACTIVEPIECES_INTEGRATION.md). Values are set by an
+    # operator after the first apply: encryption key = 32 hex characters (never rotate while
+    # connections exist), JWT secret, and the password of the gateway's engine service account.
+    activepieces_encryption_key = {
+      description = "Activepieces AP_ENCRYPTION_KEY (32 hex characters)"
+    }
+
+    activepieces_jwt_secret = {
+      description = "Activepieces AP_JWT_SECRET"
+    }
+
+    activepieces_service_password = {
+      description = "Password of the AI Gateway service account on the Activepieces engine"
+    }
   }
 
   tags = {

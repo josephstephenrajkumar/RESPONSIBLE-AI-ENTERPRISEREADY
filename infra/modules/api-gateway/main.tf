@@ -19,13 +19,25 @@ variable "allowed_origins" {
   default = ["http://localhost:5173", "http://localhost:3000"]
 }
 
+variable "name_suffix" {
+  description = "Suffix for the API and VPC link names when more than one HTTP API exists (for example \"-workflows\")."
+  type        = string
+  default     = ""
+}
+
+variable "enable_cors" {
+  description = "Attach a CORS configuration. Disable when the backend sets its own CORS headers (the Activepieces engine)."
+  type        = bool
+  default     = true
+}
+
 variable "tags" {
   type    = map(string)
   default = {}
 }
 
 locals {
-  name = "${var.project_name}-${var.environment}"
+  name = "${var.project_name}-${var.environment}${var.name_suffix}"
 }
 
 resource "aws_apigatewayv2_vpc_link" "this" {
@@ -40,12 +52,15 @@ resource "aws_apigatewayv2_api" "this" {
   name          = "${local.name}-api"
   protocol_type = "HTTP"
 
-  cors_configuration {
-    allow_credentials = true
-    allow_headers     = ["authorization", "content-type"]
-    allow_methods     = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-    allow_origins     = var.allowed_origins
-    max_age           = 300
+  dynamic "cors_configuration" {
+    for_each = var.enable_cors ? [1] : []
+    content {
+      allow_credentials = true
+      allow_headers     = ["authorization", "content-type"]
+      allow_methods     = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+      allow_origins     = var.allowed_origins
+      max_age           = 300
+    }
   }
 
   tags = var.tags

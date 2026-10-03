@@ -141,6 +141,58 @@ variable "observability_console_url" {
   default = ""
 }
 
+# ---------------------------------------------------------------------------
+# Workflow Apps (Activepieces engine). docs/ACTIVEPIECES_INTEGRATION.md
+# ---------------------------------------------------------------------------
+variable "activepieces_enabled" {
+  type    = bool
+  default = false
+}
+
+variable "activepieces_api_url" {
+  description = "Engine as seen from the gateway task (internal ALB)."
+  type        = string
+  default     = ""
+}
+
+variable "activepieces_public_url" {
+  description = "Engine as seen from the browser (HTTP API endpoint); used for the embedded builder and chat."
+  type        = string
+  default     = ""
+}
+
+variable "activepieces_service_email" {
+  type    = string
+  default = "workflow-service@responsible-ai.local"
+}
+
+variable "activepieces_service_password_secret_arn" {
+  type    = string
+  default = ""
+}
+
+variable "activepieces_gateway_url" {
+  description = "This gateway as seen from the engine worker. Empty = this module's own internal ALB."
+  type        = string
+  default     = ""
+}
+
+variable "activepieces_litellm_url" {
+  description = "Proxy as seen from the engine worker (the LiteLLM internal ALB)."
+  type        = string
+  default     = ""
+}
+
+variable "workflow_default_budget_usd" {
+  type    = number
+  default = 10
+}
+
+variable "workflow_platform_budget_usd" {
+  type    = number
+  default = 25
+}
+
 variable "desired_count" {
   type    = number
   default = 1
@@ -177,6 +229,23 @@ locals {
       { name = "GROQ_API_KEY", valueFrom = var.groq_api_key_secret_arn }
     ] : [],
   )
+
+  activepieces_secrets = var.activepieces_enabled && var.activepieces_service_password_secret_arn != "" ? [
+    { name = "ACTIVEPIECES_SERVICE_PASSWORD", valueFrom = var.activepieces_service_password_secret_arn }
+  ] : []
+
+  activepieces_environment = [
+    { name = "ACTIVEPIECES_ENABLED", value = var.activepieces_enabled ? "true" : "false" },
+    { name = "ACTIVEPIECES_API_URL", value = var.activepieces_api_url },
+    { name = "ACTIVEPIECES_PUBLIC_URL", value = var.activepieces_public_url },
+    { name = "ACTIVEPIECES_SERVICE_EMAIL", value = var.activepieces_service_email },
+    { name = "ACTIVEPIECES_GATEWAY_URL", value = var.activepieces_gateway_url != "" ? var.activepieces_gateway_url : "http://${aws_lb.this.dns_name}" },
+    { name = "ACTIVEPIECES_LITELLM_URL", value = var.activepieces_litellm_url != "" ? var.activepieces_litellm_url : var.litellm_proxy_url },
+    { name = "ACTIVEPIECES_PIECES_DIR", value = "/app/pieces" },
+    { name = "WORKFLOW_BOOTSTRAP_ON_STARTUP", value = "true" },
+    { name = "WORKFLOW_DEFAULT_BUDGET_USD", value = tostring(var.workflow_default_budget_usd) },
+    { name = "WORKFLOW_PLATFORM_BUDGET_USD", value = tostring(var.workflow_platform_budget_usd) }
+  ]
 }
 
 resource "aws_cloudwatch_log_group" "this" {
@@ -332,7 +401,8 @@ resource "aws_iam_role_policy" "execution_secrets" {
           var.litellm_api_key_secret_arn,
           var.litellm_admin_key_secret_arn,
           var.groq_api_key_secret_arn,
-          var.guardrails_token_secret_arn
+          var.guardrails_token_secret_arn,
+          var.activepieces_service_password_secret_arn,
         ])
       }
     ]
@@ -411,7 +481,7 @@ resource "aws_ecs_task_definition" "this" {
           protocol      = "tcp"
         }
       ]
-      environment = [
+      environment = concat([
         { name = "AUTH_REQUIRED", value = tostring(var.auth_required) },
         { name = "COGNITO_REGION", value = var.cognito_region },
         { name = "COGNITO_USER_POOL_ID", value = var.cognito_user_pool_id },
@@ -434,9 +504,10 @@ resource "aws_ecs_task_definition" "this" {
         { name = "JAEGER_UI_URL", value = var.observability_console_url != "" ? var.observability_console_url : var.jaeger_ui_url },
         { name = "OTEL_EXPORTER", value = "aws_xray_cloudwatch" },
         { name = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", value = "http://127.0.0.1:4318/v1/traces" }
-      ]
+      ], local.activepieces_environment)
       secrets = concat(
         local.llm_secrets,
+        local.activepieces_secrets,
         var.guardrails_token_secret_arn == "" ? [] : [
           { name = "GUARDRAILS_TOKEN", valueFrom = var.guardrails_token_secret_arn }
         ]
