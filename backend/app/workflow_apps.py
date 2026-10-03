@@ -225,6 +225,70 @@ def provider_models() -> List[str]:
 
 
 # ----------------------------------------------------------------------------- bootstrap
+BOOTSTRAP_LOCK_SECONDS = 600
+
+
+def acquire_bootstrap_lock(owner: str) -> bool:
+    """Database lease so that only one gateway worker bootstraps at a time (gunicorn runs
+    several). A stale lease (older than BOOTSTRAP_LOCK_SECONDS) can be taken over."""
+    now = datetime.utcnow()
+    with SessionLocal() as session:
+        row = session.get(WorkflowSetting, 'bootstrap_lock')
+        if row is not None:
+            try:
+                held = json.loads(row.value)
+            except json.JSONDecodeError:
+                held = {}
+            try:
+                since = datetime.fromisoformat(str(held.get('since', '')))
+            except ValueError:
+                since = None
+            if since is not None and (now - since).total_seconds() < BOOTSTRAP_LOCK_SECONDS and held.get('owner') != owner:
+                return False
+            row.value = json.dumps({'owner': owner, 'since': now.isoformat()})
+        else:
+            session.add(WorkflowSetting(key='bootstrap_lock', value=json.dumps({'owner': owner, 'since': now.isoformat()})))
+        try:
+            session.commit()
+        except Exception:
+            session.rollback()
+            return False
+    return True
+
+
+def release_bootstrap_lock(owner: str) -> None:
+    with SessionLocal() as session:
+        row = session.get(WorkflowSetting, 'bootstrap_lock')
+        if row is not None:
+            try:
+                if json.loads(row.value).get('owner') == owner:
+                    session.delete(row)
+                    session.commit()
+            except json.JSONDecodeError:
+                session.delete(row)
+                session.commit()
+
+
+async def _dedupe_providers(configs: list, keep_id: Optional[str]):
+    """Remove engine AI providers that duplicate ours by name (a start-up race between workers can
+    create two). Keeps `keep_id` when it is one of them, else the first. Returns (configs, removed_ids)."""
+    ours = [p for p in configs if isinstance(p, dict) and (p.get('displayName') or p.get('name')) == AI_PROVIDER_NAME and p.get('id')]
+    if len(ours) <= 1:
+        return configs, []
+    keep = next((p for p in ours if p.get('id') == keep_id), ours[0])
+    removed: List[str] = []
+    for extra in ours:
+        if extra is keep:
+            continue
+        try:
+            await activepieces.delete_ai_provider(str(extra['id']))
+            removed.append(str(extra['id']))
+        except ActivepiecesError as exc:
+            logger.warning('could not remove duplicate AI provider %s: %s', extra.get('id'), exc.detail)
+    kept_ids = {keep.get('id')} | {p.get('id') for p in configs if isinstance(p, dict) and p not in ours}
+    return [p for p in configs if isinstance(p, dict) and p.get('id') in kept_ids], removed
+
+
 async def bootstrap(actor: str = 'system', force: bool = False) -> Dict[str, Any]:
     result: Dict[str, Any] = {
         'enabled': Settings.ACTIVEPIECES_ENABLED, 'service_configured': bool(Settings.ACTIVEPIECES_SERVICE_PASSWORD),
@@ -235,6 +299,11 @@ async def bootstrap(actor: str = 'system', force: bool = False) -> Dict[str, Any
         return result
     if _state['bootstrap_running']:
         result['errors'].append('bootstrap already running')
+        return result
+    lock_owner = f'{os.getpid()}-{secrets.token_hex(3)}'
+    if not acquire_bootstrap_lock(lock_owner):
+        result['errors'].append('bootstrap is running in another gateway worker; retry shortly')
+        result['skipped'] = True
         return result
     _state['bootstrap_running'] = True
     try:
@@ -278,8 +347,11 @@ async def bootstrap(actor: str = 'system', force: bool = False) -> Dict[str, Any
             # /ai-providers?projectId lists provider *types* enabled for a project; the platform's
             # configured providers (with their display names) come from /ai-providers/configs.
             configs = await activepieces.list_ai_provider_configs()
-            existing = next((p for p in configs if isinstance(p, dict) and (p.get('displayName') or p.get('name')) == AI_PROVIDER_NAME), None)
             stored_id = setting_get('ai_provider_id')
+            configs, removed = await _dedupe_providers(configs, stored_id)
+            if removed:
+                result['ai_provider_duplicates_removed'] = removed
+            existing = next((p for p in configs if isinstance(p, dict) and (p.get('displayName') or p.get('name')) == AI_PROVIDER_NAME), None)
             if existing is None and stored_id:
                 # Created earlier (for example by another worker's startup); the listing did not
                 # surface it, so update by the id we recorded instead of creating a duplicate.
@@ -304,7 +376,16 @@ async def bootstrap(actor: str = 'system', force: bool = False) -> Dict[str, Any
                     'auth': {'apiKey': f'Bearer {key}'},
                 }
                 if existing:
-                    provider = await activepieces.update_ai_provider(existing['id'], {k: body[k] for k in ('displayName', 'config', 'auth')})
+                    update_body = {k: body[k] for k in ('displayName', 'config', 'auth')}
+                    try:
+                        provider = await activepieces.update_ai_provider(existing['id'], update_body)
+                    except ActivepiecesError as exc:
+                        if exc.status_code != 409:
+                            raise
+                        # A duplicate still carries the name: remove it, then update again.
+                        _, removed_now = await _dedupe_providers(await activepieces.list_ai_provider_configs(), existing['id'])
+                        result['ai_provider_duplicates_removed'] = result.get('ai_provider_duplicates_removed', []) + removed_now
+                        provider = await activepieces.update_ai_provider(existing['id'], update_body)
                 else:
                     try:
                         provider = await activepieces.create_ai_provider(body)
@@ -333,6 +414,7 @@ async def bootstrap(actor: str = 'system', force: bool = False) -> Dict[str, Any
         return result
     finally:
         _state['bootstrap_running'] = False
+        release_bootstrap_lock(lock_owner)
         result['finished_at'] = datetime.utcnow().isoformat() + 'Z'
         _state['last_bootstrap'] = result
 

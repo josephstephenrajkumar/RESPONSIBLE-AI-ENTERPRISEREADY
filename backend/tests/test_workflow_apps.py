@@ -110,6 +110,10 @@ class FakeActivepiecesBootstrap(FakeActivepieces):
         self.providers.append(('update', provider_id, body))
         return {'id': provider_id}
 
+    async def delete_ai_provider(self, provider_id):
+        self.providers.append(('delete', provider_id))
+        self.configs = [c for c in self.configs if c.get('id') != provider_id]
+
 
 class FakeLiteLLM:
     def __init__(self, spend_rows=None):
@@ -388,3 +392,57 @@ class BootstrapTests(WorkflowBase):
         self.assertEqual(result['ai_provider']['state'], 'updated')
         self.assertEqual(ap.providers[0][:2], ('update', 'prov_race'))
         self.assertEqual(workflow_apps.setting_get('ai_provider_id'), 'prov_race')
+
+    def test_duplicate_providers_are_removed_keeping_the_recorded_one(self):
+        ap = FakeActivepiecesBootstrap(configs=[
+            {'id': 'prov_a', 'name': workflow_apps.AI_PROVIDER_NAME, 'provider': 'custom'},
+            {'id': 'prov_b', 'name': workflow_apps.AI_PROVIDER_NAME, 'provider': 'custom'},
+            {'id': 'other', 'name': 'OpenAI direct', 'provider': 'openai'},
+        ])
+        ap.pieces[workflow_templates.GATEWAY_PIECE] = {'version': '0.1.1'}
+        ap.pieces[workflow_templates.LITELLM_PIECE] = {'version': '0.1.1'}
+        workflow_apps.setting_set('ai_provider_id', 'prov_b')
+        result = self._run_bootstrap(ap, [], force=True)
+        self.assertEqual(result['errors'], [])
+        self.assertEqual(result['ai_provider_duplicates_removed'], ['prov_a'])
+        self.assertIn(('delete', 'prov_a'), ap.providers)
+        self.assertEqual([p for p in ap.providers if p[0] == 'update'][0][1], 'prov_b')
+        self.assertEqual([c['id'] for c in ap.configs], ['prov_b', 'other'])
+
+    def test_update_conflict_dedupes_then_retries(self):
+        class ConflictOnce(FakeActivepiecesBootstrap):
+            def __init__(self):
+                super().__init__(configs=[{'id': 'prov_keep', 'name': workflow_apps.AI_PROVIDER_NAME, 'provider': 'custom'}])
+                self.updates = 0
+            async def update_ai_provider(self, provider_id, body):
+                self.updates += 1
+                if self.updates == 1:
+                    # a duplicate appeared between listing and update
+                    self.configs.append({'id': 'prov_dup', 'name': workflow_apps.AI_PROVIDER_NAME, 'provider': 'custom'})
+                    raise ActivepiecesError(409, {'code': 'VALIDATION', 'params': {'message': 'Another key of this provider already uses this name'}})
+                self.providers.append(('update', provider_id, body))
+                return {'id': provider_id}
+        ap = ConflictOnce()
+        ap.pieces[workflow_templates.GATEWAY_PIECE] = {'version': '0.1.1'}
+        ap.pieces[workflow_templates.LITELLM_PIECE] = {'version': '0.1.1'}
+        result = self._run_bootstrap(ap, [], force=True)
+        self.assertEqual(result['errors'], [])
+        self.assertEqual(result['ai_provider']['state'], 'updated')
+        self.assertEqual(result['ai_provider_duplicates_removed'], ['prov_dup'])
+        self.assertEqual(ap.updates, 2)
+
+    def test_bootstrap_lock_is_exclusive_and_releasable(self):
+        self.assertTrue(workflow_apps.acquire_bootstrap_lock('w1'))
+        self.assertFalse(workflow_apps.acquire_bootstrap_lock('w2'))
+        self.assertTrue(workflow_apps.acquire_bootstrap_lock('w1'))  # re-entrant for the owner
+        workflow_apps.release_bootstrap_lock('w1')
+        self.assertTrue(workflow_apps.acquire_bootstrap_lock('w2'))
+        workflow_apps.release_bootstrap_lock('w2')
+
+    def test_second_worker_skips_while_locked(self):
+        ap = FakeActivepiecesBootstrap()
+        self.assertTrue(workflow_apps.acquire_bootstrap_lock('other-worker'))
+        result = self._run_bootstrap(ap, [])
+        self.assertTrue(result.get('skipped'))
+        self.assertEqual(ap.installed, [])
+        workflow_apps.release_bootstrap_lock('other-worker')

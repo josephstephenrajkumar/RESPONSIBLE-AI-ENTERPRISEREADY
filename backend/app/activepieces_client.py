@@ -172,6 +172,11 @@ class ActivepiecesClient:
     async def update_ai_provider(self, provider_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
         return await self._ok('POST', f'/ai-providers/{provider_id}', json=body)
 
+    async def delete_ai_provider(self, provider_id: str) -> None:
+        status, payload = await self._request('DELETE', f'/ai-providers/{provider_id}')
+        if status >= 400 and status != 404:
+            raise ActivepiecesError(status, payload)
+
     # ------------------------------------------------------------------ connections
     async def upsert_custom_auth_connection(self, external_id: str, display_name: str, piece_name: str,
                                             props: Dict[str, Any]) -> Dict[str, Any]:
