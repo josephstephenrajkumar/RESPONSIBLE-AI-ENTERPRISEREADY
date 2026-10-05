@@ -367,7 +367,13 @@ window saw 404s from the old revision; the rerun after the old task drained pass
 | `tests/workflow_studio_e2e.py`, local stack (regression) | 23 of 23 |
 | Local engine | all four AWS pieces `installed` by the bootstrap; metadata lists 4 + 2 + 6 + 10 actions with `CUSTOM_AUTH` connections |
 
-_AWS dev results are appended after the deployment of this change._
+| AWS dev engine (task definition `:2`, task role policy + `AP_SANDBOX_PROPAGATED_ENV_VARS`) | the gateway bootstrap on image `13b9294` installed all four AWS pieces (`installed`, no errors) |
+| `tests/mcp_e2e.py`, AWS dev over the public API (gateway image `13b9294`, task definition `:11`, `PUBLIC_BASE_URL` set) | 19 of 19; `tools/call` answered through the Responsible AI pipeline with the gateway footer |
+| `tests/aws_pieces_smoke.py`, AWS dev | 18 of 18: one connection per piece created with the region only and **validated with the task role** (STS from inside piece execution, which proves the credential propagation); Bedrock `list_agents` → `{"agents": [], "knowledgeBases": []}` and `list_flows` → `{"flows": []}`; OpenSearch `raw_request` to a bogus host was signed and sent (`getaddrinfo ENOTFOUND`); Quick `list_dashboards` in us-east-1 reached the service: `UnsupportedUserEditionException: Account … is not subscribed for QuickSight` |
+
+Not verified (no resources in dev): `invoke_agent`, `retrieve`, `retrieve_and_generate`, `invoke_flow`, OpenSearch
+reads and writes against a real domain, Quick snapshot export, embed URL, Quick Automate jobs. They use the same
+connection and SDK paths as the verified calls; first use against real resources should be treated as a test.
 
 ## 11. Open items and follow-ups
 

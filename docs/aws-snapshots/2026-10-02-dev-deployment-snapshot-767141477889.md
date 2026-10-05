@@ -156,3 +156,22 @@ CloudFront `E3SBHD9QG7B984` invalidated. Design: [ACTIVEPIECES_INTEGRATION.md](.
   `https://kv84d4ljc6.execute-api.ap-southeast-1.amazonaws.com` with its own login; nothing in the portal references it.
 - Rollout observation: for about a minute both task revisions served traffic (old revision 404 on the Studio routes);
   verify after the old task drains.
+
+## Addendum 2026-10-05 — AWS pieces and MCP publishing
+
+Applied from reviewed plans: `ecs-activepieces` (task role policy with Bedrock, OpenSearch and Quick actions;
+task definition `:2` with `AP_SANDBOX_PROPAGATED_ENV_VARS` so piece execution reaches the task-role credentials;
+`AP_ALLOWED_EMBED_ORIGINS` dropped), `api-gateway` (default-route throttling burst 100 / 50 rps), `ecs-ai-gateway`
+image `13b9294` (task definition `:11`, `PUBLIC_BASE_URL` = the HTTP API endpoint). Frontend uploaded and CloudFront
+`E3SBHD9QG7B984` invalidated. Design: [ACTIVEPIECES_INTEGRATION.md](../ACTIVEPIECES_INTEGRATION.md) §5.6, §5.7 and
+[MCP_PUBLISHING.md](../MCP_PUBLISHING.md).
+
+- Engine: four new piece archives installed by the gateway bootstrap (`@responsible-ai/piece-aws-bedrock-agents`,
+  `-aws-bedrock-flows`, `-aws-opensearch`, `-aws-quick`, all 0.1.0).
+- MCP endpoint live at `https://0nl4sfks87.execute-api.ap-southeast-1.amazonaws.com/mcp` (keys issued from the portal;
+  no key left in place: the e2e key was revoked and the app deleted).
+- Verification with a temporary Cognito admin (deleted afterwards): `tests/mcp_e2e.py` 19 of 19;
+  `tests/aws_pieces_smoke.py` 18 of 18 (task-role connections validated, Bedrock lists empty, OpenSearch request
+  signed, Quick reports the account is not subscribed). Nothing created in Bedrock, OpenSearch or Quick.
+- Rollouts: engine task replaced (in-memory queue, no runs in flight), gateway rolled; both reached steady state.
+- Still pending from the previous addendum: operator destroy of the legacy `api-gateway-workflows` HTTP API.

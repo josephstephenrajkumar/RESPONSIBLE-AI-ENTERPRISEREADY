@@ -204,7 +204,7 @@ a revoked key is rejected.
 | M15 Guided configuration: catalogue, validation, profiles (Sprint 3) and copilot (Sprint 5) | Sprints 3, 5 | M13, M4 |
 | M16 Activepieces engine deployed as a managed backend with the Workflow Apps control plane | ✅ 2026-10-03 (dev) | M2 |
 | M17 Workflow Studio GA: builder in the portal, engine internal, no engine UI or URL | ✅ 2026-10-03 (dev; the legacy HTTP API `api-gateway-workflows` is unreferenced and awaits an operator destroy) | M16 |
-| M18 AWS pieces (Bedrock Agents/Flows, OpenSearch, Quick Suite) and workflow apps published as MCP tools | Sprints AQ-1, AQ-2 (see track) | M17 |
+| M18 AWS pieces (Bedrock Agents/Flows, OpenSearch, Quick Suite) and workflow apps published as MCP tools | ✅ 2026-10-05 (dev; pieces smoke-tested with the task role, MCP suite over the public API) | M17 |
 
 ## Success metrics
 
