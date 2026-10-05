@@ -58,4 +58,5 @@ curl -s -H "Authorization: Bearer $TOKEN" "$API/gateway/health"    # expect appl
 
 ## Cleanup
 
-Runbook §17 (reverse order; `ecs-litellm-proxy` is destroyed after `ecs-ai-gateway`).
+Runbook §17 (saved destroy plans, dependents first). The dev environment was torn down on 2026-10-05; redeploy from
+runbook §3.

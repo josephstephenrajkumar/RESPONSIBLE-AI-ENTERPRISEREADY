@@ -352,24 +352,70 @@ virtual keys, MCP servers and proxy-side guardrails are managed from the same ta
 
 ## 17. Destroy
 
-Reverse order; decide on a final Aurora snapshot first.
+Last run 2026-10-05: the whole dev environment (11 modules, 129 resources) came down this way in about half an hour; see
+the last addendum of
+[aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md](aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md).
+
+Dependents first. This order respects every `dependency` block; the four modules in braces do not depend on each other
+and can run in parallel:
+
+```text
+observability → frontend-s3-cloudfront → api-gateway → ecs-ai-gateway
+→ { cognito, ecs-litellm-proxy, ecs-activepieces, ecr } → aurora-postgres → secrets → network
+```
+
+Use saved plans so every destroy is reviewed before it runs (the same flow as section 8). Terraform colours the word
+"destroyed", so strip the escape codes before grepping.
 
 ```bash
-for m in observability frontend-s3-cloudfront api-gateway ecs-ai-gateway ecs-litellm-proxy ecr aurora-postgres cognito secrets network; do
-  (cd "infra/live/dev/$m" && terragrunt --non-interactive destroy)
+export AWS_REGION=ap-southeast-1
+PLANS=$(mktemp -d)
+ORDER="observability frontend-s3-cloudfront api-gateway ecs-ai-gateway cognito ecs-litellm-proxy ecs-activepieces ecr aurora-postgres secrets network"
+for m in $ORDER; do
+  (cd "infra/live/dev/$m" && terragrunt --non-interactive plan -destroy -out="$PLANS/$m.tfplan") \
+    | sed 's/\x1b\[[0-9;]*m//g' | grep -E "will be destroyed|Plan:"
 done
 ```
 
-Empty the frontend and LiteLLM config buckets first if `destroy` reports they are not empty.
+Review the lists (every resource should carry the `responsible-ai-dev` prefix), then apply in order. Three steps need a hand
+between applies:
+
+1. **Database.** `aurora-postgres` sets `skip_final_snapshot = true` and the automated snapshots disappear with the cluster.
+   If the data matters, create a manual cluster snapshot of `responsible-ai-dev-aurora` first and wait until it is
+   `available` (a cluster cannot be deleted while a snapshot is being taken).
+2. **Frontend bucket.** `responsible-ai-dev-frontend-<account>` has no `force_destroy`: delete every object version before
+   applying `frontend-s3-cloudfront`. The LiteLLM config bucket has `force_destroy` and needs nothing.
+3. **ECR images.** `responsible-ai-dev-ai-gateway` has no `force_delete`: delete its images after `ecs-ai-gateway` is gone
+   and before applying `ecr`.
+
+```bash
+for m in $ORDER; do
+  (cd "infra/live/dev/$m" && terragrunt --non-interactive apply "$PLANS/$m.tfplan")
+done
+```
+
+Slow steps: CloudFront about 3 minutes, each ECS service drain 3 to 8 minutes, Aurora about 9 minutes, NAT gateway about
+3 minutes.
+
+Afterwards:
+
+- Secrets Manager keeps the eleven `responsible-ai-dev/*` secrets for the 7-day recovery window
+  (`recovery_window_in_days = 7`); a redeploy inside that window must restore them or the `secrets` apply fails on the names.
+- ECS creates the Container Insights log groups `/aws/ecs/containerinsights/responsible-ai-dev-*/performance` outside
+  Terraform; delete them by hand.
+- The state bucket `responsible-ai-terraform-state-dev-<account>` and the lock table stay (empty states, cents per month)
+  so a redeploy needs no new `backend bootstrap`.
+- Sweep the account for anything left with the `responsible-ai` prefix: ECS clusters, RDS clusters and snapshots, load
+  balancers, security groups, IAM roles, alarms, log groups, HTTP APIs, Cognito pools, CloudFront distributions, S3
+  buckets, ECR repositories. The account also hosts unrelated workloads; touch nothing without the prefix.
 
 ## 16. Workflow Apps engine (Activepieces)
 
 Added 2026-10-03 ([ACTIVEPIECES_INTEGRATION.md](ACTIVEPIECES_INTEGRATION.md)). Deploy order: `secrets` (new keys) →
 `ecs-activepieces` → `ecs-ai-gateway` (new image with the piece archives and the `ACTIVEPIECES_*` settings) → frontend.
 The portal's Workflow Studio and app chat reach the engine through the gateway only. The HTTP API
-`api-gateway-workflows` of the first delivery is no longer referenced by anything; remove it with
-`cd infra/live/dev/api-gateway-workflows && terragrunt --non-interactive destroy` (6 resources: API, stage, two routes,
-integration, VPC link), then delete that folder. Until then the engine's UI answers on that endpoint with its own login.
+`api-gateway-workflows` of the first delivery is gone and its folder was removed from the repo on 2026-10-05; the engine has
+no public endpoint.
 
 1. Build the pieces once per change and stage them into the image context:
    `cd workflows/pieces && npm install && npm run build && cd ../.. && cp -R workflows/pieces/dist/. backend/pieces/`

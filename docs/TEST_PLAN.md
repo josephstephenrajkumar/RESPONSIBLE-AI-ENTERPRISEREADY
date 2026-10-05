@@ -58,7 +58,7 @@ bypass of the proxy, sync path used by TruLens, model allowlist) and the FinOps/
 With a Cognito id token for an `admin` user (runbook §15):
 
 ```bash
-API=https://0nl4sfks87.execute-api.ap-southeast-1.amazonaws.com
+API=https://<api-id>.execute-api.ap-southeast-1.amazonaws.com   # the HTTP API endpoint of the current deployment
 curl -s "$API/health"
 curl -s -H "Authorization: Bearer $TOKEN" "$API/gateway/health" | python3 -m json.tool
 backend/venv/bin/python tests/run_scenarios.py --base-url "$API" --token "$TOKEN" --only LITELLM

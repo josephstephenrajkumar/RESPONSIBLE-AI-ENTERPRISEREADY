@@ -175,3 +175,34 @@ image `13b9294` (task definition `:11`, `PUBLIC_BASE_URL` = the HTTP API endpoin
   signed, Quick reports the account is not subscribed). Nothing created in Bedrock, OpenSearch or Quick.
 - Rollouts: engine task replaced (in-memory queue, no runs in flight), gateway rolled; both reached steady state.
 - Still pending from the previous addendum: operator destroy of the legacy `api-gateway-workflows` HTTP API.
+
+## Addendum 2026-10-05 (later) — Environment torn down
+
+Requested in chat ("tear down the AWS deployment"). Every module under `infra/live/dev` was destroyed from a reviewed
+saved plan (`terragrunt plan -destroy -out=…` → review of the `will be destroyed` list → `terragrunt apply <plan>`),
+dependents first: observability (2) → frontend-s3-cloudfront (6) → api-gateway (6) → ecs-ai-gateway (16) →
+cognito (8), ecs-litellm-proxy (22), ecs-activepieces (17), ecr (2) in parallel → aurora-postgres (5) → secrets (26) →
+network (19). 129 resources in all. The legacy module `api-gateway-workflows` already had an empty state (its HTTP API
+`kv84d4ljc6` was gone before this session) and its folder was removed from the repo (TD-30 resolved).
+
+Done by hand around the destroys: the frontend bucket emptied (11 object versions; no `force_destroy`), the 12 images in
+the ECR repository deleted (no `force_delete`), and the three Container Insights log groups
+`/aws/ecs/containerinsights/responsible-ai-dev-*/performance` deleted (ECS creates them outside Terraform).
+Slowest steps: Aurora cluster 9 min, LiteLLM ECS service drain 8 min, NAT gateway 3 min, CloudFront 3 min.
+
+Verified afterwards in account 767141477889: no ECS cluster, RDS cluster, load balancer, security group, IAM role,
+CloudWatch alarm, log group, HTTP API, Cognito user pool, CloudFront distribution, ECR repository or S3 bucket with the
+`responsible-ai-dev` prefix remains; VPC `vpc-0f6b4c53dd9d38e19` and its NAT gateway are gone. The unrelated `cloudbox2`
+workload in the same account was not touched.
+
+What remains, on purpose:
+
+| Item | Why | Cost |
+|---|---|---|
+| Manual Aurora cluster snapshot `responsible-ai-dev-aurora-final-2026-10-05` (about 1 GB) | The module sets `skip_final_snapshot = true`; the snapshot keeps the application tables, LiteLLM tables and Activepieces flows restorable. Delete it when it is no longer wanted. | cents per month |
+| Eleven secrets `responsible-ai-dev/*`, scheduled for deletion | `recovery_window_in_days = 7`; they disappear on 2026-10-12 unless restored | none |
+| State bucket `responsible-ai-terraform-state-dev-767141477889` and lock table `responsible-ai-terraform-locks-dev` | Empty states; a redeploy needs no new `backend bootstrap` | cents per month |
+
+Every entry point named above (CloudFront `d12wylhj234wu3`, HTTP API `0nl4sfks87`, the Cognito domain, the internal ALBs)
+no longer exists. To redeploy, follow [AWS_DEV_DEPLOYMENT_RUNBOOK.md](../AWS_DEV_DEPLOYMENT_RUNBOOK.md) from §3: the
+resource names stay the same, the ids and hostnames will be new, and the secret values must be entered again.

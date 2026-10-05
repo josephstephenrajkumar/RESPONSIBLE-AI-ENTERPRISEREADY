@@ -83,5 +83,5 @@ Authenticated checks (`/gateway/health`, dashboards) are in the runbook §15.
 
 ## Cleanup
 
-Destroy in reverse order (runbook §17). Aurora, the NAT gateway, the two Fargate services and the two internal ALBs
-incur cost while idle.
+Destroy with saved plans, dependents first (runbook §17). Aurora, the NAT gateway, the three Fargate services and the three
+internal ALBs incur cost while idle. The dev environment was torn down on 2026-10-05 (snapshot addendum).

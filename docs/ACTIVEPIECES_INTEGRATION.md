@@ -196,8 +196,8 @@ at the engine itself because the worker fetches piece bundles from it. Secrets (
 
 AWS dev: module `ecs-activepieces` (one Fargate task behind an **internal** ALB, shared Aurora database over SSL,
 in-memory queue, secrets in Secrets Manager; see TD-32 for the prod shape). Nothing uses the engine's public endpoint
-any more; the HTTP API `api-gateway-workflows` of the first delivery is scheduled for `terragrunt destroy` by an
-operator (the destroy plan was prepared on 2026-10-03; the apply is a protected action in the automated session). The gateway task gets
+any more; the HTTP API `api-gateway-workflows` of the first delivery is gone and its module was removed from the repo on
+2026-10-05, the day the whole dev environment was torn down (see the snapshot addendum). The gateway task gets
 `ACTIVEPIECES_API_URL` on the internal ALB and ships the piece archives in its image (`/app/pieces`).
 
 ### 5.6 AWS pieces (`workflows/pieces/aws-*`)

@@ -70,7 +70,7 @@ used; no engine login or engine URL in the user journey.
 
 **Exit criteria**: an administrator builds a three-step app with a dynamic property, tests each step, publishes, and reads the run.
 
-#### Sprint WS-3 — Engine internal, router and loop steps, OAuth connections — ✅ 2026-10-03 (legacy public engine API awaits an operator `terragrunt destroy`)
+#### Sprint WS-3 — Engine internal, router and loop steps, OAuth connections — ✅ 2026-10-03 (legacy public engine API gone; its module was removed on 2026-10-05)
 
 - Remove the engine's public HTTP API and all iframes; the engine is reachable only from the gateway; public chat and form routes
   are no longer exposed.
@@ -204,7 +204,7 @@ a revoked key is rejected.
 | M14 AI App control plane integrated: discovery document, capability manifest, gateway-issued credentials, token exchange, events | Sprint 4 | M13 |
 | M15 Guided configuration: catalogue, validation, profiles (Sprint 3) and copilot (Sprint 5) | Sprints 3, 5 | M13, M4 |
 | M16 Activepieces engine deployed as a managed backend with the Workflow Apps control plane | ✅ 2026-10-03 (dev) | M2 |
-| M17 Workflow Studio GA: builder in the portal, engine internal, no engine UI or URL | ✅ 2026-10-03 (dev; the legacy HTTP API `api-gateway-workflows` is unreferenced and awaits an operator destroy) | M16 |
+| M17 Workflow Studio GA: builder in the portal, engine internal, no engine UI or URL | ✅ 2026-10-03 (dev; the legacy HTTP API `api-gateway-workflows` is gone and its module was removed on 2026-10-05) | M16 |
 | M18 AWS pieces (Bedrock Agents/Flows, OpenSearch, Quick Suite) and workflow apps published as MCP tools | ✅ 2026-10-05 (dev; pieces smoke-tested with the task role, MCP suite over the public API) | M17 |
 
 ## Success metrics

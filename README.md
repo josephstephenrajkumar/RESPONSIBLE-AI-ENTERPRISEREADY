@@ -37,7 +37,7 @@ The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, 
 - [AWS Service Mapping](docs/AWS_SERVICE_MAPPING.md)
 - [Migration Plan](docs/MIGRATION_PLAN.md)
 - [Claude AI Development Cycle](docs/claude-development-cycle/README.md)
-- [Dev deployment snapshot (account 767141477889)](docs/aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md) — live URLs and resource inventory
+- [Dev deployment snapshot (account 767141477889)](docs/aws-snapshots/2026-10-02-dev-deployment-snapshot-767141477889.md) — resource inventory of the dev deployment (torn down 2026-10-05; see its last addendum)
 - [AWS Account, Project Name and Profile](docs/AWS_ACCOUNT_AND_PROFILE.md) — account 767141477889, region, `responsible-ai` naming, which local CLI profile to use
 - [No Secrets in Git or Documentation](docs/NO_SECRETS_IN_GIT.md) — policy, the scanner and hooks that enforce it, what to do if a secret leaks
 - [Supply-Chain Trust: SBOM, Provenance and Signing](docs/SUPPLY_CHAIN_TRUST.md) — how we make AI-assisted releases verifiable for customers; backlog items BL-01, BL-02
