@@ -6,6 +6,8 @@ import {
 import { StatusDot, formatUsd } from './charts'
 import { Button, EmptyRow, Field, Modal, Notice, Pill, useNotice } from './ui'
 import WorkflowStudio from '../studio/WorkflowStudio'
+import McpPanel from './McpPanel'
+import { aiGovernanceNote } from '../studio/flowModel'
 
 // Workflow Apps: build and publish workflow apps from inside the portal. The gateway owns the
 // engine (service account, credentials, app registry); the Workflow Studio is our own builder
@@ -70,13 +72,13 @@ function CatalogueDialog({ onClose }) {
   const visible = all.filter(p => !filter || (p.displayName || '').toLowerCase().includes(filter.toLowerCase()) || (p.name || '').toLowerCase().includes(filter.toLowerCase()))
   return (
     <Modal title="Studio catalogue" onClose={onClose} width="min(900px, 100%)" footer={<><Button disabled={busy || !chosen} onClick={save}>{busy ? 'Saving…' : 'Save catalogue'}</Button><Button variant="ghost" onClick={() => setChosen(new Set(defaults))}>Reset to default</Button><Button variant="ghost" onClick={onClose}>Close</Button></>}>
-      <p className="muted" style={{ marginTop: 0 }}>Pieces builders may add to a workflow. AI steps should use the Responsible AI Gateway or LiteLLM Proxy pieces so inference stays governed and metered; other pieces call their APIs directly.</p>
+      <p className="muted" style={{ marginTop: 0 }}>Pieces builders may add to a workflow. AI steps should use the Responsible AI Gateway or LiteLLM Proxy pieces so inference stays governed and metered. Pieces marked <Pill tone="danger">direct provider</Pill> call a model vendor with their own key and bypass the proxy, the Responsible AI pipeline and FinOps; keep them disabled unless a policy exception exists. Other pieces call their business APIs directly.</p>
       <Notice notice={n.notice} />
       <input className="studio-search" placeholder="Filter pieces…" value={filter} onChange={(e) => setFilter(e.target.value)} />
       <div className="muted" style={{ fontSize: '0.75rem', marginBottom: 6 }}>{chosen ? `${chosen.size} of ${all.length} pieces enabled` : 'Loading…'}</div>
       <div className="catalogue-list">
         {chosen && visible.map(p => (
-          <label key={p.name}><input type="checkbox" checked={chosen.has(p.name)} onChange={(e) => { const next = new Set(chosen); e.target.checked ? next.add(p.name) : next.delete(p.name); setChosen(next) }} />{p.logoUrl && <img src={p.logoUrl} alt="" />}<span>{p.displayName}<br /><code style={{ fontSize: '0.68rem' }}>{p.name}</code></span></label>
+          <label key={p.name} title={aiGovernanceNote(p)?.hint || ''}><input type="checkbox" checked={chosen.has(p.name)} onChange={(e) => { const next = new Set(chosen); e.target.checked ? next.add(p.name) : next.delete(p.name); setChosen(next) }} />{p.logoUrl && <img src={p.logoUrl} alt="" />}<span>{p.displayName} {aiGovernanceNote(p) && <Pill tone={aiGovernanceNote(p).tone}>{aiGovernanceNote(p).label}</Pill>}<br /><code style={{ fontSize: '0.68rem' }}>{p.name}</code></span></label>
         ))}
       </div>
     </Modal>
@@ -192,6 +194,7 @@ export default function WorkflowApps({ canManage }) {
             </tr>))}
             {apps.length === 0 && <EmptyRow colSpan={7}>No workflow apps yet. Create one above; the Responsible AI chat template reproduces the Chat tab as a workflow you can extend in the Studio.</EmptyRow>}</tbody></table></div>
       </div>
+      <McpPanel apps={apps} canManage={canManage} />
       {catalogue && <CatalogueDialog onClose={() => setCatalogue(false)} />}
     </section>
   )

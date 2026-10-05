@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchStudioPiece, fetchStudioPieces } from '../api'
-import { Button, Modal, Notice, useNotice } from '../components/ui'
+import { Button, Modal, Notice, Pill, useNotice } from '../components/ui'
+import { aiGovernanceNote } from './flowModel'
 
 // Picks what to add: a piece action (or trigger), a Code step, a Router or a Loop.
 export default function StepPicker({ mode = 'action', onClose, onPick }) {
@@ -36,7 +37,7 @@ export default function StepPicker({ mode = 'action', onClose, onPick }) {
             {visible.map(p => (
               <button type="button" key={p.name} className="piece-card" onClick={() => open(p)}>
                 {p.logoUrl && <img src={p.logoUrl} alt="" />}
-                <div><strong>{p.displayName}</strong><div className="muted" style={{ fontSize: '0.72rem' }}>{mode === 'trigger' ? `${p.triggers} triggers` : `${p.actions} actions`}</div></div>
+                <div><strong>{p.displayName}</strong><div className="muted" style={{ fontSize: '0.72rem' }}>{mode === 'trigger' ? `${p.triggers} triggers` : `${p.actions} actions`}{aiGovernanceNote(p) && <> · <span title={aiGovernanceNote(p).hint}><Pill tone={aiGovernanceNote(p).tone}>{aiGovernanceNote(p).label}</Pill></span></>}</div></div>
               </button>
             ))}
             {visible.length === 0 && <p className="muted">No pieces match.</p>}

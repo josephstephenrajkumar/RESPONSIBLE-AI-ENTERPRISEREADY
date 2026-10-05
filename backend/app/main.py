@@ -57,7 +57,7 @@ from app.schemas import (
     ProviderCredentialRequest,
 )
 from app.llm_client import bind_request_context, llm_client, reset_request_context
-from app import gateway_settings
+from app import gateway_settings, mcp_server
 from app.litellm_admin import LiteLLMAdminError, litellm_admin
 from app import workflow_apps
 from app import workflow_studio
@@ -115,6 +115,8 @@ app.add_middleware(
 # Workflow Apps control plane (Activepieces); docs/ACTIVEPIECES_INTEGRATION.md
 app.include_router(workflow_apps.router)
 app.include_router(workflow_studio.router)
+app.include_router(mcp_server.router)
+app.include_router(mcp_server.mcp_router)
 
 
 @app.on_event('startup')
@@ -124,6 +126,7 @@ def startup_event():
     init_database()
     gateway_settings.ensure_table()
     workflow_apps.ensure_tables()
+    mcp_server.ensure_tables()
     reload_safety_policies()
     import asyncio
     if llm_client.mode == 'proxy':

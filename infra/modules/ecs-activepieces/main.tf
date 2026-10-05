@@ -289,19 +289,78 @@ resource "aws_iam_role" "task" {
   tags               = var.tags
 }
 
+variable "aws_pieces_enabled" {
+  description = "Grant the engine task role the permissions used by the Responsible AI AWS pieces (Bedrock Agents and Flows, OpenSearch, Quick Suite). The pieces sign with this role, so no key is stored in the engine."
+  type        = bool
+  default     = true
+}
+
+variable "assumable_role_arns" {
+  description = "Roles the AWS pieces may assume (connection 'Role ARN'). Empty = no AssumeRole."
+  type        = list(string)
+  default     = []
+}
+
 resource "aws_iam_role_policy" "task" {
   name = "${local.name}-activepieces-task"
   role = aws_iam_role.task.id
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
-        Resource = "*"
-      }
-    ]
+    Statement = concat(
+      [
+        {
+          Effect   = "Allow"
+          Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+          Resource = "*"
+        },
+        {
+          Sid      = "Identity"
+          Effect   = "Allow"
+          Action   = ["sts:GetCallerIdentity"]
+          Resource = "*"
+        }
+      ],
+      var.aws_pieces_enabled ? [
+        {
+          Sid    = "BedrockAgentsAndFlows"
+          Effect = "Allow"
+          Action = [
+            "bedrock:ListAgents", "bedrock:GetAgent", "bedrock:ListAgentAliases", "bedrock:InvokeAgent",
+            "bedrock:ListKnowledgeBases", "bedrock:GetKnowledgeBase", "bedrock:Retrieve", "bedrock:RetrieveAndGenerate",
+            "bedrock:ListFlows", "bedrock:GetFlow", "bedrock:ListFlowAliases", "bedrock:InvokeFlow",
+            "bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"
+          ]
+          Resource = "*"
+        },
+        {
+          Sid      = "OpenSearch"
+          Effect   = "Allow"
+          Action   = ["es:ESHttpGet", "es:ESHttpPost", "es:ESHttpPut", "es:ESHttpDelete", "es:ESHttpHead", "es:DescribeDomain", "es:ListDomainNames", "aoss:APIAccessAll", "aoss:ListCollections"]
+          Resource = "*"
+        },
+        {
+          Sid    = "QuickSuite"
+          Effect = "Allow"
+          Action = [
+            "quicksight:ListDashboards", "quicksight:DescribeDashboard", "quicksight:UpdateDashboardPublishedVersion",
+            "quicksight:ListDataSets", "quicksight:CreateIngestion", "quicksight:DescribeIngestion",
+            "quicksight:StartDashboardSnapshotJob", "quicksight:DescribeDashboardSnapshotJob", "quicksight:DescribeDashboardSnapshotJobResult",
+            "quicksight:GenerateEmbedUrlForRegisteredUser", "quicksight:ListFlows", "quicksight:DescribeFlow", "quicksight:GetFlowMetadata",
+            "quicksight:StartAutomationJob", "quicksight:DescribeAutomationJob"
+          ]
+          Resource = "*"
+        }
+      ] : [],
+      length(var.assumable_role_arns) > 0 ? [
+        {
+          Sid      = "AssumePieceRoles"
+          Effect   = "Allow"
+          Action   = ["sts:AssumeRole"]
+          Resource = var.assumable_role_arns
+        }
+      ] : []
+    )
   })
 }
 
@@ -351,6 +410,9 @@ resource "aws_ecs_task_definition" "this" {
         { name = "AP_POSTGRES_SSL_CA", value = var.postgres_use_ssl ? local.rds_ca_bundle : "" },
         { name = "AP_REDIS_TYPE", value = "MEMORY" },
         { name = "AP_EXECUTION_MODE", value = "UNSANDBOXED" },
+        # The worker forks piece execution with a filtered environment; these names let the AWS SDK inside the
+        # Responsible AI AWS pieces reach the task-role credentials endpoint (no keys are stored anywhere).
+        { name = "AP_SANDBOX_PROPAGATED_ENV_VARS", value = "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI,AWS_CONTAINER_CREDENTIALS_FULL_URI,AWS_CONTAINER_AUTHORIZATION_TOKEN,AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE,AWS_REGION,AWS_DEFAULT_REGION" },
         { name = "AP_TELEMETRY_ENABLED", value = "false" },
         { name = "AP_ALLOW_OPEN_SIGN_UP", value = var.allow_open_sign_up ? "true" : "false" },
         { name = "AP_PIECES_SYNC_MODE", value = var.pieces_sync_mode },

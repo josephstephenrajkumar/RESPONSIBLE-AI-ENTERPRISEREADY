@@ -616,6 +616,8 @@ async def _cleanup(items: List[Any], actor: str) -> None:
 
 async def delete_app(app: WorkflowApp, actor: str) -> None:
     errors: List[str] = []
+    from app import mcp_server  # local import: mcp_server imports this module
+    mcp_server.delete_tool(app.id)
     try:
         await activepieces.delete_flow(app.ap_flow_id)
     except ActivepiecesError as exc:

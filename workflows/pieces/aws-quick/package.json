@@ -1,0 +1,6 @@
+{
+  "name": "@responsible-ai/piece-aws-quick",
+  "version": "0.1.0",
+  "description": "Amazon Quick Suite (Quick Sight dashboards, datasets, snapshot exports, embedding, Quick Flows metadata and Quick Automate jobs) from a workflow app, with the engine task role as identity.",
+  "license": "UNLICENSED"
+}

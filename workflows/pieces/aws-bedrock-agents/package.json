@@ -1,0 +1,6 @@
+{
+  "name": "@responsible-ai/piece-aws-bedrock-agents",
+  "version": "0.1.0",
+  "description": "Invoke Amazon Bedrock Agents and query Bedrock Knowledge Bases from a workflow app, with the engine task role as identity.",
+  "license": "UNLICENSED"
+}

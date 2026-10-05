@@ -464,3 +464,10 @@ export async function studioOAuthUrl(appId, body) { return parseResponse(await f
 export async function testStudioStep(appId, stepName) { return parseResponse(await fetchWithAuth(studioUrl(appId, `/steps/${encodeURIComponent(stepName)}/test`), { method: 'POST', headers: authHeaders() })) }
 export async function fetchStudioRun(appId, runId) { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/runs/${encodeURIComponent(runId)}`, { headers: authHeaders() })) }
 export async function retryStudioRun(appId, runId, strategy = 'ON_LATEST_VERSION') { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/apps/${encodeURIComponent(appId)}/runs/${encodeURIComponent(runId)}/retry?strategy=${strategy}`, { method: 'POST', headers: authHeaders() })) }
+
+// ---- MCP publishing (workflow apps exposed as MCP tools for external agents) ----
+export async function fetchMcpInfo() { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/mcp`, { headers: authHeaders() })) }
+export async function issueMcpKey(name) { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/mcp/keys`, { method: 'POST', headers: jsonHeaders(), body: JSON.stringify({ name }) })) }
+export async function revokeMcpKey(keyId) { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/mcp/keys/${encodeURIComponent(keyId)}`, { method: 'DELETE', headers: authHeaders() })) }
+export async function updateMcpTool(appId, body) { return parseResponse(await fetchWithAuth(`${API_BASE}/workflows/mcp/tools/${encodeURIComponent(appId)}`, { method: 'PUT', headers: jsonHeaders(), body: JSON.stringify(body) })) }
+

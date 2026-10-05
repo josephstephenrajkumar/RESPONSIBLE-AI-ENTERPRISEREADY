@@ -1,0 +1,6 @@
+{
+  "name": "@responsible-ai/piece-aws-opensearch",
+  "version": "0.1.0",
+  "description": "Search, index and manage documents in Amazon OpenSearch Service domains and OpenSearch Serverless collections with SigV4-signed requests.",
+  "license": "UNLICENSED"
+}

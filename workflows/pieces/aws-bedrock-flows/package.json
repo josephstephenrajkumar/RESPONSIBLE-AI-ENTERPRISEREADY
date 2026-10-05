@@ -1,0 +1,6 @@
+{
+  "name": "@responsible-ai/piece-aws-bedrock-flows",
+  "version": "0.1.0",
+  "description": "Run Amazon Bedrock Flows (prompt flows) from a workflow app and use their outputs in later steps.",
+  "license": "UNLICENSED"
+}

@@ -387,3 +387,10 @@ integration, VPC link), then delete that folder. Until then the engine's UI answ
 
 Builders use the Workflow Studio in the portal; the engine's service account is used by the gateway only (TD-31). There is
 no public chat page: app chat is `POST /workflows/apps/{id}/chat` under Cognito or an app token (TD-30 closed).
+
+AWS pieces (2026-10-05): the engine task role carries the Bedrock, OpenSearch and Quick permissions
+(`aws_pieces_enabled`, `assumable_role_arns` in the `ecs-activepieces` module) and the task sets
+`AP_SANDBOX_PROPAGATED_ENV_VARS` so piece execution can reach the task-role credentials; a change to either replaces the
+engine task (in-memory queue: in-flight runs are lost). The gateway task gets `PUBLIC_BASE_URL` (the HTTP API endpoint)
+for MCP metadata; `tests/mcp_e2e.py --base-url "$API" --token "$TOKEN"` verifies the MCP endpoint
+([MCP_PUBLISHING.md](MCP_PUBLISHING.md)).

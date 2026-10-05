@@ -118,6 +118,8 @@ inputs = {
   cognito_issuer        = dependency.cognito.outputs.issuer
 
   frontend_origins = "http://localhost:5173,http://localhost:3000,https://d12wylhj234wu3.cloudfront.net"
+  # The HTTP API in front of this service (api-gateway depends on this module, so the value is pinned here).
+  public_base_url  = "https://0nl4sfks87.execute-api.ap-southeast-1.amazonaws.com"
   auth_required    = true
   desired_count    = 1
   cpu              = 1024

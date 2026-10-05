@@ -79,6 +79,41 @@ used; no engine login or engine URL in the user journey.
 
 **Exit criteria**: engine has no public URL; a branching flow is built and published from the Studio; an OAuth connection can be created.
 
+### AWS integration track — AWS pieces and MCP publishing (requested 2026-10-05)
+
+Context: builders asked for AWS-native capabilities inside workflow apps (Bedrock Agents and Flows, OpenSearch,
+Amazon Quick Suite) and for the reverse direction, publishing selected apps to external agents such as Quick Suite
+chat agents. Design and verification in [ACTIVEPIECES_INTEGRATION.md](ACTIVEPIECES_INTEGRATION.md) §5.6, §5.7, §10b
+and [MCP_PUBLISHING.md](MCP_PUBLISHING.md).
+
+#### Sprint AQ-1 — AWS pieces with the engine task role as identity — ✅ 2026-10-05
+
+- Four custom pieces bundled like the existing ones (`workflows/pieces/aws-*`): **AWS Bedrock Agents** (invoke agent,
+  retrieve, retrieve-and-generate, list), **AWS Bedrock Flows** (invoke flow, list), **AWS OpenSearch** (SigV4-signed
+  search, index/get/delete/bulk, raw request for domains and serverless collections), **AWS Quick Suite** (dashboards:
+  list, describe, publish version, SPICE refresh, PDF snapshot to S3, embed URL incl. the Quick chat agent; Quick Flows
+  list/describe; Quick Automate start/describe job).
+- Shared auth: region, optional role ARN + external id, access keys only for local development; credentials from the
+  engine task role otherwise (no key stored anywhere). The engine forwards the task-role credential variables to piece
+  execution (`AP_SANDBOX_PROPAGATED_ENV_VARS`); the task role policy grants the Bedrock, OpenSearch and Quick actions.
+- Studio: the four pieces in the default catalogue; governance badges on AI pieces (governed / proxy only / AWS-native
+  AI / direct provider) in the catalogue and the step picker.
+
+**Exit criteria**: pieces install on the engine, connections validate with the task role in dev AWS, list actions run
+from a Studio step test; AI calls inside Bedrock or Quick are labelled as outside the proxy.
+
+#### Sprint AQ-2 — Publish workflow apps as an MCP server — ✅ 2026-10-05
+
+- Gateway MCP server (`POST /mcp`, streamable HTTP, JSON responses): one tool per published app, calls run the published
+  flow through the gateway with the app's budget and metering; fresh session per call unless the client carries one.
+- MCP keys (shown once, hashed, revocable, tenant-scoped), Cognito tokens accepted, app tokens rejected, OAuth resource
+  discovery pointing at Cognito; body and batch caps; audit event per call; API Gateway throttling.
+- Portal: MCP server section on the Workflow Apps screen (publish toggles, tool name and description, keys, connection
+  instructions for Quick Suite, Claude Code and LiteLLM) and an MCP toggle in the Studio header.
+
+**Exit criteria**: `tests/mcp_e2e.py` passes locally and against dev AWS; a disabled app disappears from `tools/list`;
+a revoked key is rejected.
+
 ### Sprint 2 — Proxy in AWS, budgets, hardening
 
 > Progress 2026-10-02: the proxy and keyless gateway are live in dev (account 767141477889); the gateway still uses the master key (TD-25). Remaining items below.
@@ -169,6 +204,7 @@ used; no engine login or engine URL in the user journey.
 | M15 Guided configuration: catalogue, validation, profiles (Sprint 3) and copilot (Sprint 5) | Sprints 3, 5 | M13, M4 |
 | M16 Activepieces engine deployed as a managed backend with the Workflow Apps control plane | ✅ 2026-10-03 (dev) | M2 |
 | M17 Workflow Studio GA: builder in the portal, engine internal, no engine UI or URL | ✅ 2026-10-03 (dev; the legacy HTTP API `api-gateway-workflows` is unreferenced and awaits an operator destroy) | M16 |
+| M18 AWS pieces (Bedrock Agents/Flows, OpenSearch, Quick Suite) and workflow apps published as MCP tools | Sprints AQ-1, AQ-2 (see track) | M17 |
 
 ## Success metrics
 

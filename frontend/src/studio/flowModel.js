@@ -177,3 +177,18 @@ export function markdownVariables(app) {
   }
 }
 
+// Which AI pieces keep inference inside our governance. Everything else tagged as AI by the
+// engine calls a provider directly with its own key: no LiteLLM proxy, no Responsible AI
+// pipeline, no FinOps metering. The catalogue and the step picker label these.
+export const GOVERNED_AI_PIECES = new Set(['@responsible-ai/piece-responsible-ai-gateway', '@responsible-ai/piece-litellm-proxy', '@activepieces/piece-ai'])
+export const AWS_NATIVE_AI_PIECES = new Set(['@responsible-ai/piece-aws-bedrock-agents', '@responsible-ai/piece-aws-bedrock-flows', '@responsible-ai/piece-aws-quick'])
+
+export function aiGovernanceNote(piece) {
+  if (!piece?.name) return null
+  if (piece.name === '@responsible-ai/piece-responsible-ai-gateway') return { tone: 'ok', label: 'governed', hint: 'Through the gateway: Responsible AI pipeline, budgets and metering apply.' }
+  if (piece.name === '@responsible-ai/piece-litellm-proxy' || piece.name === '@activepieces/piece-ai') return { tone: 'info', label: 'proxy only', hint: 'Through the LiteLLM proxy: metered and budgeted, no Responsible AI processing.' }
+  if (AWS_NATIVE_AI_PIECES.has(piece.name)) return { tone: 'warn', label: 'AWS-native AI', hint: 'Models run inside AWS (Bedrock, Quick) outside the proxy; billed by AWS, not metered in FinOps.' }
+  if ((piece.categories || []).includes('ARTIFICIAL_INTELLIGENCE')) return { tone: 'danger', label: 'direct provider', hint: 'Calls the vendor API with its own key: bypasses the LiteLLM proxy, the Responsible AI pipeline and FinOps.' }
+  return null
+}
+

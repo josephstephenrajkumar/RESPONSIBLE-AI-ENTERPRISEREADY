@@ -91,3 +91,17 @@ Lesson:
   Engine 0.92 resolves step references as `{{step['output']…}}`. Imported flows (templates) are migrated by the
   engine, API-edited flows are not; the legacy form silently resolves to empty strings. The Studio emits the current
   format (ADR-25).
+
+## Addendum 2026-10-05 — AWS pieces and MCP publishing (Sprints AQ-1, AQ-2)
+
+Request: "add the AWS Bedrock Agents, Flows, OpenSearch, Quick SDK and APIs as custom pieces" and "a capability to
+publish selected workflow apps vice versa to AWS as an external MCP server". Plan reviewed in plan mode and approved.
+
+Delivered: four pieces in `workflows/pieces/aws-*` with the engine task role as identity (credential variables
+propagated to piece execution; task role policy extended), governance badges on AI pieces; gateway MCP server
+(`backend/app/mcp_server.py`) with tenant-scoped keys, hardening from the review (fresh session per call, body and
+batch caps, app tokens rejected, audit event per call, public base URL, API Gateway throttling); portal MCP panel and
+Studio toggle; docs `MCP_PUBLISHING.md`, roadmap track, TD-35..39.
+
+Verification: unit 78 green; `tests/mcp_e2e.py` local and AWS; AWS smoke of the pieces limited to list actions and
+error handling (no Bedrock agents, OpenSearch domains or Quick subscription in dev).

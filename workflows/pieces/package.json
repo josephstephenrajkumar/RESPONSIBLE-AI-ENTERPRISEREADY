@@ -13,6 +13,14 @@
     "typescript": "5.6.3"
   },
   "dependencies": {
+    "@aws-crypto/sha256-js": "^5.2.0",
+    "@aws-sdk/client-bedrock-agent": "^3.1146.0",
+    "@aws-sdk/client-bedrock-agent-runtime": "^3.1146.0",
+    "@aws-sdk/client-quicksight": "^3.1146.0",
+    "@aws-sdk/client-sts": "^3.1146.0",
+    "@aws-sdk/credential-providers": "^3.1146.0",
+    "@smithy/protocol-http": "^5.6.2",
+    "@smithy/signature-v4": "^5.7.4",
     "ai": "6.0.0",
     "deepmerge-ts": "7.1.3",
     "form-data": "4.0.6",

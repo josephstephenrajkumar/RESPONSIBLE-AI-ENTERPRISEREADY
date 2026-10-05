@@ -88,10 +88,27 @@ resource "aws_apigatewayv2_route" "root" {
   target    = "integrations/${aws_apigatewayv2_integration.this.id}"
 }
 
+variable "throttling_burst_limit" {
+  description = "Default route burst limit (requests). Protects the gateway and the MCP endpoint from floods."
+  type        = number
+  default     = 100
+}
+
+variable "throttling_rate_limit" {
+  description = "Default route steady-state limit (requests per second)."
+  type        = number
+  default     = 50
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.this.id
   name        = "$default"
   auto_deploy = true
+
+  default_route_settings {
+    throttling_burst_limit = var.throttling_burst_limit
+    throttling_rate_limit  = var.throttling_rate_limit
+  }
 
   tags = var.tags
 }

@@ -44,6 +44,7 @@ The first iteration intentionally avoids Kafka, SNS/SQS fanout, Lambda brokers, 
 - [Backlog](docs/BACKLOG.md) — agreed but unscheduled items, mirrored in section 5 of the Activate roadmap specification
 - [Activepieces Integration: Workflow Apps and Workflow Studio](docs/ACTIVEPIECES_INTEGRATION.md) — review of Activepieces 0.92, the gateway control plane, custom pieces, the portal's own Workflow Studio over the engine API, security boundaries, enterprise upgrade path
 - [Workflow Studio plan](docs/WORKFLOW_STUDIO_PLAN.md) — decision record: why the builder is ours and the engine is an internal backend with no public URL
+- [MCP publishing](docs/MCP_PUBLISHING.md) — workflow apps as tools for external agents (Amazon Quick Suite, Claude, LiteLLM): endpoint, keys, security model, limits
 
 ## Target AWS Architecture
 

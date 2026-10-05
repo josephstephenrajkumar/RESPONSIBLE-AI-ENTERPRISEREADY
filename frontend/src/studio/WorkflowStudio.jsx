@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  applyStudioOperation, fetchStudioFlow, fetchStudioPiece, fetchStudioStepSample, fetchStudioVersions, publishWorkflowApp, setWorkflowAppStatus, testStudioStep,
+  applyStudioOperation, fetchMcpInfo, fetchStudioFlow, fetchStudioPiece, fetchStudioStepSample, fetchStudioVersions, publishWorkflowApp, setWorkflowAppStatus, testStudioStep, updateMcpTool,
 } from '../api'
 import { Button, Field, JsonView, Modal, Notice, Pill, Tabs, useNotice } from '../components/ui'
 import AppChat from '../components/AppChat'
@@ -334,8 +334,14 @@ export default function WorkflowStudio({ app: initialApp, canManage, onClose, on
   const [busy, setBusy] = useState('')
   const [renaming, setRenaming] = useState(false)
   const [newName, setNewName] = useState('')
+  const [mcpTool, setMcpTool] = useState(null)
   const n = useNotice()
   const app = data?.app || initialApp
+  useEffect(() => { fetchMcpInfo().then(info => setMcpTool((info.tools || []).find(t => t.app_id === initialApp.id) || null)).catch(() => {}) }, [initialApp.id])
+  const toggleMcp = async () => {
+    setBusy('mcp'); n.clear()
+    try { const t = await updateMcpTool(app.id, { published: !(mcpTool?.published) }); setMcpTool(t); n.ok(t.published ? `Published to MCP clients as tool ${t.tool_name}.` : 'Removed from MCP clients.') } catch (err) { n.fail(err) } finally { setBusy('') }
+  }
 
   const load = async () => {
     try {
@@ -436,6 +442,7 @@ export default function WorkflowStudio({ app: initialApp, canManage, onClose, on
         </div>
         <div className="button-row">
           <Tabs items={[{ id: 'build', label: 'Build' }, { id: 'runs', label: 'Runs' }, { id: 'versions', label: 'Versions' }, { id: 'chat', label: 'Chat' }]} value={tab} onChange={setTab} />
+          {canManage && app.published_at && <Button variant="ghost" disabled={!!busy} title="Expose this app as a tool to MCP clients (Quick Suite, Claude, LiteLLM)" onClick={toggleMcp}>{mcpTool?.published ? `MCP: on (${mcpTool.tool_name})` : 'MCP: off'}</Button>}
           {canManage && app.published_at && <Button variant="ghost" disabled={!!busy} onClick={toggle}>{app.status === 'published' ? 'Disable' : 'Enable'}</Button>}
           {canManage && <Button disabled={!!busy || invalidCount > 0} title={invalidCount ? 'Complete every step first' : ''} onClick={publish}>{busy === 'publish' ? 'Publishing…' : app.published_at ? 'Publish changes' : 'Publish'}</Button>}
         </div>

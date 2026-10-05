@@ -149,6 +149,12 @@ variable "activepieces_enabled" {
   default = false
 }
 
+variable "public_base_url" {
+  description = "Public base URL of the gateway as clients reach it (the HTTP API endpoint); used in MCP metadata and OAuth resource discovery."
+  type        = string
+  default     = ""
+}
+
 variable "activepieces_api_url" {
   description = "Engine as seen from the gateway task (internal ALB)."
   type        = string
@@ -493,6 +499,7 @@ resource "aws_ecs_task_definition" "this" {
         { name = "GROQ_MODEL", value = var.llm_default_model },
         { name = "GROQ_API_URL", value = var.groq_api_url },
         { name = "FRONTEND_ORIGINS", value = var.frontend_origins },
+        { name = "PUBLIC_BASE_URL", value = var.public_base_url },
         { name = "OTEL_SERVICE_NAME", value = "${local.name}-ai-gateway" },
         { name = "JAEGER_UI_URL", value = var.observability_console_url != "" ? var.observability_console_url : var.jaeger_ui_url },
         { name = "OTEL_EXPORTER", value = "aws_xray_cloudwatch" },

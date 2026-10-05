@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const apRoot = resolve(process.env.ACTIVEPIECES_SRC ?? join(here, '..', '..', '..', 'ActivateDev', 'activepieces-main'))
 const distRoot = join(here, 'dist')
-const FAIL_BYTES = 5 * 1024 * 1024
+const FAIL_BYTES = 8 * 1024 * 1024
 
 function assertCheckout() {
   const marker = join(apRoot, 'packages', 'pieces', 'framework', 'src', 'index.ts')
@@ -93,7 +93,7 @@ async function bundleOne(folder) {
     inlined.add(rest.startsWith('@') ? rest.split('/').slice(0, 2).join('/') : rest.split('/')[0])
   }
   const bytes = statSync(outfile).size
-  if (bytes > FAIL_BYTES) throw new Error(`${folder}: bundle is ${(bytes / 1024 / 1024).toFixed(2)} MB, over the 5 MB cap`)
+  if (bytes > FAIL_BYTES) throw new Error(`${folder}: bundle is ${(bytes / 1024 / 1024).toFixed(2)} MB, over the 8 MB cap (engine upload limit is 25 MB)`)
 
   const published = {
     name: manifest.name,

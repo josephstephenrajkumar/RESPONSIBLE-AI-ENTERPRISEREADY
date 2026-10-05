@@ -69,6 +69,8 @@ class Settings:
     PRESIDIO_SPACY_MODEL = os.getenv('PRESIDIO_SPACY_MODEL', 'en_core_web_sm')
     GUARDRAILS_TOKEN = os.getenv('GUARDRAILS_TOKEN', '')
     AUTH_REQUIRED = os.getenv('AUTH_REQUIRED', 'false').lower() == 'true'
+    # Public base URL of this gateway as clients reach it (API Gateway endpoint); used in MCP metadata.
+    PUBLIC_BASE_URL = os.getenv('PUBLIC_BASE_URL', '').rstrip('/')
     COGNITO_REGION = os.getenv('COGNITO_REGION', '')
     COGNITO_USER_POOL_ID = os.getenv('COGNITO_USER_POOL_ID', '')
     COGNITO_APP_CLIENT_ID = os.getenv('COGNITO_APP_CLIENT_ID', '')
@@ -128,7 +130,9 @@ class Settings:
     WORKFLOW_USAGE_SYNC_SECONDS = int(os.getenv('WORKFLOW_USAGE_SYNC_SECONDS', '300'))
     # Pieces the Workflow Studio offers (comma separated). Empty = every piece in the engine catalogue.
     WORKFLOW_STUDIO_PIECES = _csv(os.getenv('WORKFLOW_STUDIO_PIECES', ','.join([
-        '@responsible-ai/piece-responsible-ai-gateway', '@responsible-ai/piece-litellm-proxy', '@activepieces/piece-forms',
+        '@responsible-ai/piece-responsible-ai-gateway', '@responsible-ai/piece-litellm-proxy',
+        '@responsible-ai/piece-aws-bedrock-agents', '@responsible-ai/piece-aws-bedrock-flows', '@responsible-ai/piece-aws-opensearch', '@responsible-ai/piece-aws-quick',
+        '@activepieces/piece-forms',
         '@activepieces/piece-webhook', '@activepieces/piece-schedule', '@activepieces/piece-http', '@activepieces/piece-ai',
         '@activepieces/piece-data-mapper', '@activepieces/piece-json', '@activepieces/piece-text-helper', '@activepieces/piece-date-helper',
         '@activepieces/piece-math-helper', '@activepieces/piece-delay', '@activepieces/piece-store', '@activepieces/piece-csv',

@@ -200,6 +200,30 @@ any more; the HTTP API `api-gateway-workflows` of the first delivery is schedule
 operator (the destroy plan was prepared on 2026-10-03; the apply is a protected action in the automated session). The gateway task gets
 `ACTIVEPIECES_API_URL` on the internal ALB and ships the piece archives in its image (`/app/pieces`).
 
+### 5.6 AWS pieces (`workflows/pieces/aws-*`)
+
+Four custom pieces give workflow apps AWS-native capabilities without storing any AWS key: **AWS Bedrock Agents**,
+**AWS Bedrock Flows**, **AWS OpenSearch** (SigV4 over the REST API, managed domains and serverless collections) and
+**AWS Quick Suite** (QuickSight API family: dashboards, SPICE refresh, PDF snapshots to S3, embed URLs including the
+Quick chat agent, Quick Flows metadata, Quick Automate jobs). `workflows/pieces/aws-common/aws.ts` holds the shared
+connection: region, optional role ARN and external id (STS AssumeRole from the engine task role), access keys for local
+development only. The engine forks piece execution with a filtered environment, so the engine task sets
+`AP_SANDBOX_PROPAGATED_ENV_VARS` to forward the ECS credential variables; the task role policy in
+`infra/modules/ecs-activepieces/main.tf` grants the Bedrock, OpenSearch and Quick actions (dev scope `*`, TD-37).
+
+Governance: model calls inside Bedrock Agents, Bedrock Flows and Quick run on AWS models outside the LiteLLM proxy and
+the Responsible AI pipeline and are billed by AWS. The Studio labels these pieces **AWS-native AI**; upstream pieces that
+call a vendor API with their own key (OpenAI, Mistral, …) are labelled **direct provider** and are not in the default
+catalogue. Running a Quick Flow from outside Quick is not exposed by the public SDK (TD-35); Quick Automate jobs are.
+
+### 5.7 MCP server: apps as tools for external agents
+
+`backend/app/mcp_server.py` publishes selected apps as MCP tools at `POST /mcp` (streamable HTTP, JSON responses).
+One tool per app marked published; a call runs the published flow through the gateway with the app's budget and
+metering, a fresh session per call unless the client carries one. Credentials: tenant-scoped MCP keys (shown once,
+hashed, revocable), Cognito tokens; app tokens are rejected. Limits and connection recipes for Amazon Quick Suite,
+Claude Code and LiteLLM are in [MCP_PUBLISHING.md](MCP_PUBLISHING.md).
+
 ## 6. Security and Responsible AI boundaries
 
 - **Credentials never reach the browser.** The gateway talks to Activepieces with a service account; per-app
@@ -262,6 +286,9 @@ creation per tenant and the builder URL (embed route) are isolated behind its in
 | ADR-23 | The builder is ours (Workflow Studio in the portal) and the engine is an internal backend with no public URL | Review of the first delivery: one product, one theme, one login; CE cannot re-theme or SSO-embed the engine UI (plan §4a) |
 | ADR-24 | The Studio drives the engine only through an allow-listed set of flow operations on the gateway; publish, status, budgets and deletion stay on the app routes | Keeps tenancy, budgets and credentials enforced in one place and keeps the engine's surface small |
 | ADR-25 | Studio-generated expressions use the engine 0.92 format `{{step['output']…}}` | Flows imported with an older schema are migrated by the engine; flows edited through the API are not, and the legacy form resolves to empty values (found in verification) |
+| ADR-26 | AWS access from workflows uses the engine task role (optionally assuming per-tenant roles with an external id), never stored keys | No credential at rest in the engine; IAM is the control point; upstream AWS pieces (key-based) stay out of the default catalogue |
+| ADR-27 | AI inside Bedrock or Quick is allowed but labelled as outside the proxy; the Studio shows governance badges on every AI piece | Builders see which steps are governed, proxy-metered, AWS-native or direct-provider before they use them |
+| ADR-28 | Apps are published to external agents through one gateway MCP endpoint with tenant-scoped keys; calls run the app's published flow with its own budget | Keeps the engine internal, one audit trail, no per-app credentials leave the gateway |
 
 ## 10. Verification (2026-10-03, local stack)
 
@@ -329,6 +356,18 @@ until it settles.
 
 Rollout observation in AWS: for about a minute both task revisions served traffic and a run of the Studio suite in that
 window saw 404s from the old revision; the rerun after the old task drained passed every step.
+
+### 10b. AWS pieces and MCP publishing verification (2026-10-05)
+
+| Check | Result |
+|---|---|
+| Backend unit tests | 78 passed, 13 of them for the MCP server (keys, tool publishing, tenant isolation, JSON-RPC methods, fresh sessions, app-token rejection, body and batch caps) |
+| Pieces | six archives build and typecheck (`workflows/pieces`), 0.2–0.4 MB each; all six install on the local engine at bootstrap |
+| `tests/mcp_e2e.py`, local stack | 19 of 19: app published as tool `e2e_chat`, key issued, `initialize` (2025-06-18), `tools/list`, `tools/call` answered `MCP-OK` with the gateway footer through the Responsible AI pipeline, fresh session per call and client session honoured, unknown tool as `isError`, OAuth resource metadata, bad key 401 with `WWW-Authenticate`, disabled app hidden, revoked key 401, tool row removed with the app |
+| `tests/workflow_studio_e2e.py`, local stack (regression) | 23 of 23 |
+| Local engine | all four AWS pieces `installed` by the bootstrap; metadata lists 4 + 2 + 6 + 10 actions with `CUSTOM_AUTH` connections |
+
+_AWS dev results are appended after the deployment of this change._
 
 ## 11. Open items and follow-ups
 
