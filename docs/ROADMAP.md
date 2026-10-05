@@ -17,9 +17,10 @@ Two-week sprints. Sprint 1 is implemented in this repository; later sprints are 
 | **Workflow apps** | Administrators build and publish workflow apps inside the portal, in the portal's own look, with AI inference through the LiteLLM proxy and governed chat through the gateway; the Activepieces engine is an internal backend. See [ACTIVEPIECES_INTEGRATION.md](ACTIVEPIECES_INTEGRATION.md) and [WORKFLOW_STUDIO_PLAN.md](WORKFLOW_STUDIO_PLAN.md). |
 
 > **Activate AI Platform documents.** Every requirement on this roadmap is mirrored into the Activate specifications in
-> `docs/AI platform /` (Word): *Activate AI Platform Overall Roadmap* v1.6 (section 1.3 maps each requirement to a Phase 0–4 row
-> or marks it covered; new rows carry †; release 1.6 adds the Workflow Studio sprints WS-1 to WS-3 as three † rows in Phase 2,
-> 31 MD plus product management, with sections 1.2, 3 and 4 recalculated), *AI Gateway Recommended Architecture* v1.8 and
+> `docs/AI platform /` (Word): *Activate AI Platform Overall Roadmap* v1.7 (section 1.3 maps each requirement to a Phase 0–4 row
+> or marks it covered; new rows carry †; release 1.6 added the Workflow Studio sprints WS-1 to WS-3 as three † rows in Phase 2,
+> release 1.7 adds the AWS integration sprints AQ-1 and AQ-2 as two † rows in Phase 3, 20 MD plus product management, with
+> sections 1.2, 3 and 4 recalculated), *AI Gateway Recommended Architecture* v1.8 and
 > *AI App Platform Recommended Architecture* v1.6. When this file changes, update those documents in the same change.
 
 ## Sprint plan
