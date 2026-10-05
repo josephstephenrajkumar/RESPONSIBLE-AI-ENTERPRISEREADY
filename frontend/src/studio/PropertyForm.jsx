@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchStudioOptions } from '../api'
 import { Button, Field } from '../components/ui'
 import { DYNAMIC_SELECT_TYPES, STATIC_SELECT_TYPES, TEXT_TYPES, expression, samplePaths } from './flowModel'
+import Markdown from './markdown'
 
 // Renders a piece's property map as a form. Values are kept exactly as the engine expects
 // (strings may carry {{expressions}}); dynamic dropdowns and dynamic property groups are
@@ -118,14 +119,14 @@ function DynamicProps({ appId, context, prop, propKey, value, onChange, dataStep
     <div className="dynamic-props">
       <div className="button-row"><button type="button" className="ghost ui-btn-sm" disabled={busy} onClick={load}>{busy ? 'Loading fields…' : (props ? 'Reload fields' : 'Load fields')}</button>{error && <small className="muted">{error}</small>}</div>
       {props && Object.keys(nested).length > 0 && (
-        <PropertyForm appId={appId} props={nested} input={value && typeof value === 'object' ? value : {}} onChange={(next) => onChange(next)} context={context} dataSteps={dataSteps} nested />
+        <PropertyForm appId={appId} props={nested} input={value && typeof value === 'object' ? value : {}} onChange={(next) => onChange(next)} context={context} dataSteps={dataSteps} nested variables={variables} />
       )}
       {props && Object.keys(nested).length === 0 && <small className="muted">No extra fields for the current values.</small>}
     </div>
   )
 }
 
-export default function PropertyForm({ appId, props, input, onChange, context, dataSteps, nested = false, authSlot = null }) {
+export default function PropertyForm({ appId, props, input, onChange, context, dataSteps, nested = false, authSlot = null, variables = {} }) {
   const set = (key, value) => onChange({ ...(input || {}), [key]: value })
   const entries = Object.entries(props || {})
   return (
@@ -135,7 +136,7 @@ export default function PropertyForm({ appId, props, input, onChange, context, d
         if (!prop || typeof prop !== 'object') return null
         const value = input?.[key]
         const label = prop.displayName || key
-        if (prop.type === 'MARKDOWN') return <div key={key} className="prop-markdown muted" style={{ whiteSpace: 'pre-wrap' }}>{String(prop.description || prop.value || '')}</div>
+        if (prop.type === 'MARKDOWN') return <Markdown key={key} text={String(prop.description || prop.value || '')} variables={variables} />
         let control
         if (prop.type === 'CHECKBOX') control = <label className="toggle"><input type="checkbox" checked={Boolean(value)} onChange={(e) => set(key, e.target.checked)} /> {prop.description || ''}</label>
         else if (STATIC_SELECT_TYPES.has(prop.type)) {

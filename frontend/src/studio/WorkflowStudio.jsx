@@ -8,8 +8,9 @@ import ConnectionDialog from './ConnectionDialog'
 import StepPicker from './StepPicker'
 import RunsPanel from './RunsPanel'
 import PropertyForm, { DataPicker } from './PropertyForm'
+import Markdown from './markdown'
 import {
-  OPERATORS, SINGLE_VALUE_OPERATORS, coerceValue, computeValid, newCodeAction, newLoopAction, newPieceAction, newRouterAction, nextStepName, pieceAuthOptions, pieceShortName, stepToUpdateRequest, tilde,
+  OPERATORS, SINGLE_VALUE_OPERATORS, coerceValue, computeValid, markdownVariables, newCodeAction, newLoopAction, newPieceAction, newRouterAction, nextStepName, pieceAuthOptions, pieceShortName, stepToUpdateRequest, studioNote, tilde,
 } from './flowModel'
 
 // Workflow Studio: the portal's own flow builder. Every call goes to the gateway, which talks
@@ -221,7 +222,10 @@ function StepEditor({ app, step, pieces, connections, samples, tests, dataSteps,
   useEffect(() => { setDraft(step); n.clear() }, [step])
   const piece = step.pieceName ? pieces[step.pieceName] : null
   const definition = piece ? (step.type === 'PIECE_TRIGGER' ? piece.triggers?.[step.actionName] : piece.actions?.[step.actionName]) : null
-  const props = definition?.props || {}
+  const note = studioNote(step, app)
+  // With a Studio note, the engine's own markdown blocks (its chat/form/webhook URLs) are hidden.
+  const allProps = definition?.props || {}
+  const props = note ? Object.fromEntries(Object.entries(allProps).filter(([, p]) => p?.type !== 'MARKDOWN')) : allProps
   const needsAuth = Boolean(piece?.auth) && definition?.requireAuth !== false
   const dirty = JSON.stringify(draft) !== JSON.stringify(step)
   const isTrigger = step.type === 'PIECE_TRIGGER'
@@ -276,8 +280,9 @@ function StepEditor({ app, step, pieces, connections, samples, tests, dataSteps,
       </div>
       <Notice notice={n.notice} />
       {!piece && step.pieceName && <p className="muted">Loading piece metadata…</p>}
+      {note && <Markdown className="prop-markdown studio-note" text={note} />}
       {(step.type === 'PIECE' || step.type === 'PIECE_TRIGGER') && piece && (
-        <PropertyForm appId={app.id} props={props} input={draft.input || {}} onChange={(input) => setDraft({ ...draft, input })} context={context} dataSteps={dataSteps}
+        <PropertyForm appId={app.id} props={props} input={draft.input || {}} onChange={(input) => setDraft({ ...draft, input })} context={context} dataSteps={dataSteps} variables={markdownVariables(app)}
           authSlot={needsAuth ? <ConnectionPicker appId={app.id} piece={piece} value={draft.input?.auth} connections={connections} onChange={(auth) => setDraft({ ...draft, input: { ...(draft.input || {}), auth } })} onNew={() => onNewConnection(piece)} /> : null} />
       )}
       {step.type === 'CODE' && <CodeEditor draft={draft} setDraft={setDraft} dataSteps={dataSteps} />}

@@ -146,3 +146,34 @@ export function stepToUpdateRequest(step) {
   }
   return base
 }
+
+// Engine help texts for these triggers describe the engine's own pages (chat page, form page,
+// webhook URL), which the portal does not expose. The Studio shows its own note instead.
+export const STUDIO_NOTES = {
+  '@activepieces/piece-forms:chat_submission': (app) =>
+    `**Chat apps answer through the portal.** Published version: the **Chat** tab of this app, or \`POST /workflows/apps/${app.id}/chat\` with the app's token (the Responsible AI pipeline and metering apply). The engine's own chat page is not exposed.
+
+The sender waits for a **Respond on UI** step in this flow; without one the request times out at the engine's webhook timeout. Use **Sample trigger data** below to record a message, then test the next steps against it.`,
+  '@activepieces/piece-forms:form_submission': () =>
+    `**Form pages are not available in the portal.** The engine's form UI is internal. Use the **Chat UI** trigger, a **Schedule**, or an inbound webhook once the gateway routes it (TECH_DEBT TD-34).`,
+  '@activepieces/piece-webhook:catch_webhook': (app) =>
+    `**Inbound webhooks are not routed through the gateway yet** (the engine has no public URL; TECH_DEBT TD-34). You can still build and test this flow with **Sample trigger data** and step tests. Calls from outside will work once \`POST /workflows/apps/${app.id}/webhook\` exists on the gateway.`,
+}
+
+export function studioNote(step, app) {
+  if (!step || step.type !== 'PIECE_TRIGGER') return null
+  const make = STUDIO_NOTES[`${step.pieceName}:${step.actionName}`]
+  return make ? make(app || {}) : null
+}
+
+// Values for {{placeholders}} in engine help texts (the engine UI fills in its own URLs).
+export function markdownVariables(app) {
+  return {
+    chatUrl: `the Chat tab of this app (POST /workflows/apps/${app?.id || '<app-id>'}/chat)`,
+    formUrl: 'not exposed through the portal (engine form pages are internal)',
+    webhookUrl: 'not routed through the gateway yet (TD-34)',
+    webhookTimeoutSeconds: '30 (engine default)',
+    pausedFlowTimeoutDays: '30 (engine default)',
+  }
+}
+

@@ -341,3 +341,5 @@ window saw 404s from the old revision; the rerun after the old task drained pass
   replies, OIDC connections, per-step run timeline while a test is running (engine streams it over a websocket that the
   Studio does not consume).
 - Activate brand values for `theme.css` once the brand source is supplied.
+- Inbound webhook and form triggers need a gateway route now that the engine has no public URL (TD-34). The Studio
+  renders piece help texts as markdown and replaces the engine's chat, form and webhook URL notes with its own.
